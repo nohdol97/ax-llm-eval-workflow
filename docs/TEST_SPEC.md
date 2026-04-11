@@ -827,6 +827,57 @@ jobs:
 
 ---
 
+### 3.10 실험 상태 상세 조회 테스트
+
+**파일**: `tests/integration/test_experiments_api.py`
+
+#### 3.10.1 GET /api/v1/experiments/{id} -- 상세 조회
+
+| # | 테스트 이름 | 입력 | 기대 출력 | 필요 fixture/mock | 엣지케이스 |
+|---|------------|------|----------|-------------------|-----------|
+| 1 | `test_should_return_full_experiment_state_when_experiment_exists` | `GET /api/v1/experiments/{id}`, 존재하는 실험 ID | 200, `{"data": {"id": "...", "status": "running", "progress": {"completed": 5, "total": 10}, "runs": [...], "created_at": "...", "updated_at": "..."}}` | mock_redis (실험 상태 + 진행률 + run 목록), `jwt_user` | - |
+| 2 | `test_should_return_404_when_experiment_id_not_found` | `GET /api/v1/experiments/{id}`, 존재하지 않는 실험 ID | 404, `{"detail": "Experiment not found"}` | mock_redis (빈 상태), `jwt_user` | TTL 만료된 실험 ID |
+| 3 | `test_should_return_paused_status_when_experiment_is_paused` | `GET /api/v1/experiments/{id}`, `status="paused"` 실험 | 200, `status`가 `"paused"`, `progress`에 현재까지 완료된 항목 포함 | mock_redis (`status="paused"`), `jwt_user` | - |
+| 4 | `test_should_include_run_summaries_when_runs_completed` | `GET /api/v1/experiments/{id}`, 완료된 run이 있는 실험 | 200, `runs` 배열에 각 run의 `{id, status, score, started_at, completed_at}` 포함 | mock_redis (실험 + 완료된 run 3개), `jwt_user` | run이 0개인 경우 → 빈 배열 |
+| 5 | `test_should_include_error_message_when_experiment_failed` | `GET /api/v1/experiments/{id}`, `status="failed"` 실험 | 200, `status`가 `"failed"`, `error` 필드에 실패 원인 메시지 포함 | mock_redis (`status="failed"`, `error="LiteLLM timeout"`), `jwt_user` | - |
+
+---
+
+### 3.11 실험 제어 API 통합 테스트
+
+**파일**: `tests/integration/test_experiments_api.py`
+
+> Phase 4.3의 시나리오 테스트와 달리, 이 섹션은 각 제어 엔드포인트를 독립적으로 검증하는 단위 수준 API 통합 테스트이다.
+
+#### 3.11.1 POST /api/v1/experiments/{id}/pause
+
+| # | 테스트 이름 | 입력 | 기대 출력 | 필요 fixture/mock | 엣지케이스 |
+|---|------------|------|----------|-------------------|-----------|
+| 1 | `test_should_pause_experiment_when_admin_calls_pause_endpoint` | `POST /api/v1/experiments/{id}/pause`, `jwt_admin` | 200, Redis `status = "paused"`, `updated_at` 갱신 | mock_redis (`status="running"`), `jwt_admin` | - |
+| 2 | `test_should_return_403_when_viewer_calls_pause` | `POST /api/v1/experiments/{id}/pause`, `jwt_viewer` | 403, `{"detail": "Forbidden"}` | mock_redis (`status="running"`), `jwt_viewer` | - |
+| 3 | `test_should_return_404_when_pause_nonexistent_experiment` | `POST /api/v1/experiments/{id}/pause`, 존재하지 않는 ID | 404, `{"detail": "Experiment not found"}` | mock_redis (빈 상태), `jwt_admin` | - |
+
+#### 3.11.2 POST /api/v1/experiments/{id}/resume
+
+| # | 테스트 이름 | 입력 | 기대 출력 | 필요 fixture/mock | 엣지케이스 |
+|---|------------|------|----------|-------------------|-----------|
+| 1 | `test_should_resume_experiment_when_admin_calls_resume_endpoint` | `POST /api/v1/experiments/{id}/resume`, `jwt_admin` | 200, Redis `status = "running"`, `updated_at` 갱신 | mock_redis (`status="paused"`), `jwt_admin` | - |
+
+#### 3.11.3 POST /api/v1/experiments/{id}/cancel
+
+| # | 테스트 이름 | 입력 | 기대 출력 | 필요 fixture/mock | 엣지케이스 |
+|---|------------|------|----------|-------------------|-----------|
+| 1 | `test_should_cancel_experiment_when_user_calls_cancel_endpoint` | `POST /api/v1/experiments/{id}/cancel`, `jwt_user` | 200, Redis `status = "cancelled"`, `completed_at` 기록, TTL 3600초로 단축 | mock_redis (`status="running"`), `jwt_user` | - |
+
+#### 3.11.4 POST /api/v1/experiments/{id}/retry-failed
+
+| # | 테스트 이름 | 입력 | 기대 출력 | 필요 fixture/mock | 엣지케이스 |
+|---|------------|------|----------|-------------------|-----------|
+| 1 | `test_should_retry_failed_items_when_called_on_completed_experiment` | `POST /api/v1/experiments/{id}/retry-failed`, `jwt_user` | 200, Redis `status = "running"`, `failed_items`만 재실행 대상, TTL 86400초로 재설정 | mock_redis (`status="completed"`, `failed_items=3`), `jwt_user` | - |
+| 2 | `test_should_return_409_when_retry_on_experiment_with_zero_failures` | `POST /api/v1/experiments/{id}/retry-failed`, `failed_items=0` | 409, `{"detail": "No failed items to retry"}` | mock_redis (`status="completed"`, `failed_items=0`), `jwt_user` | - |
+
+---
+
 ## 테스트 실행 가이드
 
 ### 전체 테스트 실행

@@ -370,6 +370,10 @@ Phase 4(실험 실행 엔진), Phase 5(평가 시스템), Phase 6(분석), Phase
 
 ### 4.4 Redis 상태 전이 테스트
 
+**파일**: `tests/integration/test_experiment_state_transitions.py`
+
+> Phase 2의 Redis 단위 테스트(2.3.3, 2.3.6)와 달리, 이 섹션은 API 엔드포인트를 통한 통합 테스트이다.
+
 #### 4.4.1 유효한 전이: running → paused
 
 | 항목 | 내용 |
@@ -577,6 +581,8 @@ Phase 4(실험 실행 엔진), Phase 5(평가 시스템), Phase 6(분석), Phase
 | **엣지케이스** | 빈 문자열 둘 다 → 1.0. 한쪽만 빈 문자열 → 0.0. 유니코드 문자열. 매우 긴 문자열 (10KB, 성능 주의) |
 
 #### 5.1.8 cosine_similarity
+
+**분류**: integration (LiteLLM embedding API 의존)
 
 | 항목 | 내용 |
 |------|------|
