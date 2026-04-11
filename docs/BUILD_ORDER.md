@@ -13,6 +13,7 @@
 ### 작업 목록
 
 #### 0-1. Backend 테스트 프로젝트 구조
+- `backend/app/__init__.py` + `backend/app/main.py` 스텁 생성 (빈 FastAPI 인스턴스 `app = FastAPI()`). pytest fixture에서 import하기 위한 최소 구조.
 - `backend/tests/` 디렉토리 생성
 - `backend/tests/conftest.py` — 공통 fixture 정의
 - `backend/tests/unit/` — 단위 테스트
@@ -59,6 +60,8 @@ cd frontend && npx vitest --run --reporter=verbose 2>&1 | head  # vitest 실행 
 - Docker, Docker Compose 설치
 - LLM Provider API 키 (Azure OpenAI, Gemini, Bedrock, Anthropic, OpenAI 중 최소 1개)
 - 프로젝트 디렉토리 구조 생성 완료 (`docker/`, `scripts/`, `backend/`, `frontend/`)
+
+**TDD 순서**: 인프라 코드 구현 → 인프라 테스트로 검증 (인프라는 TDD보다 구현 후 검증이 적합)
 
 ### 작업 목록
 
@@ -194,6 +197,8 @@ docker build -t ax-eval-sandbox:1.0.0 docker/eval-sandbox/
 - Python 3.12+ 설치
 - `backend/` 디렉토리 내 가상환경 구성
 
+**TDD 순서**: 테스트 먼저 작성 (TEST_SPEC 참조) → 프로덕션 코드 구현 → 테스트 통과 확인
+
 ### 작업 목록
 
 #### 2-1. FastAPI 프로젝트 구조
@@ -288,6 +293,8 @@ curl -H "Authorization: Bearer <valid_jwt>" http://localhost:8000/api/v1/health
 - Phase 2 완료 (FastAPI 서버 기동, Langfuse/Redis 클라이언트 작동)
 - Langfuse에 테스트용 프로젝트, 프롬프트, 데이터셋이 최소 1개씩 존재
 
+**TDD 순서**: 테스트 먼저 작성 (TEST_SPEC 참조) → 프로덕션 코드 구현 → 테스트 통과 확인
+
 ### 작업 목록
 
 #### 3-1. Prompt API (`app/api/v1/prompts.py`)
@@ -378,6 +385,8 @@ curl -X POST -H "Authorization: Bearer <jwt>" \
 - Phase 3 완료 (Prompt API, Dataset API, Model API 작동)
 - Langfuse에 프롬프트와 데이터셋 준비
 - LiteLLM Proxy에 최소 1개 모델 등록
+
+**TDD 순서**: 테스트 먼저 작성 (TEST_SPEC 참조) → 프로덕션 코드 구현 → 테스트 통과 확인
 
 ### 작업 목록
 
@@ -493,6 +502,8 @@ curl -X POST "http://localhost:8000/api/v1/experiments/<id>/pause"
 ### 선행 조건
 - Phase 4 완료 (실험 실행 엔진 작동, LLM 호출 및 Langfuse trace 기록 가능)
 - ax-eval-sandbox Docker 이미지 빌드 완료 (Phase 1-5)
+
+**TDD 순서**: 테스트 먼저 작성 (TEST_SPEC 참조) → 프로덕션 코드 구현 → 테스트 통과 확인
 
 ### 작업 목록
 
@@ -610,6 +621,8 @@ curl -X POST -H "Authorization: Bearer <jwt>" \
 - Phase 5 완료 (실험 실행 + 평가 완료, Langfuse에 trace/score 데이터 축적)
 - ClickHouse에 실험 데이터가 존재 (최소 2개 Run으로 비교 가능)
 
+**TDD 순서**: 테스트 먼저 작성 (TEST_SPEC 참조) → 프로덕션 코드 구현 → 테스트 통과 확인
+
 ### 작업 목록
 
 #### 6-1. ClickHouse 쿼리 모듈 (`app/services/clickhouse_client.py`)
@@ -684,6 +697,8 @@ project_id=...&run_name=run_a&score_name=exact_match&bins=10"
 - Phase 6 완료 (모든 Backend API 작동)
 - Node.js 20+ 설치
 - 디자인 토큰 정의 완료 (UI_UX_DESIGN.md 참조)
+
+**TDD 순서**: 컴포넌트 테스트는 TDD, E2E 테스트는 구현 후 작성
 
 ### 작업 목록
 

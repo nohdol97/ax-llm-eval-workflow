@@ -99,6 +99,12 @@ def mock_clickhouse() -> MockClickHouseClient:
     """ClickHouse Client mock 객체."""
 ```
 
+**Fixture scope 정책**:
+- `app`, `client`: `function` (테스트 간 독립성 보장)
+- `mock_*`: `function` (매 테스트마다 초기화)
+- `jwt_*`, `auth_headers_*`: `session` (변경 불필요)
+- `real_*` (infra): `session` (연결 재사용)
+
 #### pytest 설정 (pyproject.toml)
 
 ```toml
@@ -112,9 +118,12 @@ markers = [
     "integration: 통합 테스트 (TestClient 사용)",
     "infra: 인프라 연결 테스트 (실제 서비스 필요)",
     "slow: 실행 시간이 긴 테스트",
+    "e2e: E2E 테스트 (Playwright, 전체 스택 필요)",
 ]
 filterwarnings = ["ignore::DeprecationWarning"]
 ```
+
+**추가 의존성**: `pytest-xdist` — 병렬 테스트 실행 지원 (`pytest -n auto`)
 
 ### 0.2 Frontend 테스트 구조 (vitest)
 
@@ -193,10 +202,16 @@ class MockLangfuseClient:
         """데이터셋 아이템 생성 mock."""
 
     def trace(self, **kwargs):
-        """Trace 생성 mock."""
+        """Trace 생성 mock.
+        - trace().generation() -> MockGeneration (with .id attribute)
+        - trace().id -> str (UUID)
+        """
 
     def score(self, **kwargs):
         """Score 기록 mock."""
+
+    def get_dataset(self, name: str):
+        """데이터셋 조회 mock -> MockDataset (with .items list and .link() method)."""
 
     def flush(self):
         """flush mock (no-op)."""
@@ -232,6 +247,14 @@ class MockRedisClient:
     def smembers(self, key: str) -> set: ...
     def zrevrangebyscore(self, key: str, max: float, min: float, start: int, num: int): ...
     def eval(self, script: str, numkeys: int, *keys_and_args): ...
+    def zadd(self, key: str, mapping: dict) -> int: ...
+    def zrem(self, key: str, *members) -> int: ...
+    def delete(self, *keys) -> int: ...
+    def srem(self, key: str, *members) -> int: ...
+    def ping(self) -> True: ...
+    def pipeline(self) -> "MockPipeline":
+        """MockPipeline (execute() runs batched commands)."""
+        ...
 
     def simulate_connection_failure(self): ...
 ```
@@ -253,6 +276,28 @@ class MockLiteLLMProxy:
 
     def health(self) -> dict:
         """GET /health 응답."""
+
+    async def acompletion(self, model: str, messages: list, stream: bool = False, **params):
+        """비동기 LLM 호출 mock.
+        - stream=False -> MockCompletion (usage, choices 포함)
+        - stream=True -> AsyncGenerator[MockChunk] (yields chunks)
+        """
+
+    def completion_cost(self, response) -> float:
+        """응답 기반 비용 계산 mock."""
+
+    # -- Streaming fixture --
+    # stream=True일 때 yields: [{"content":"감성"},{"content":" 분석"},{"content":" 완료"}]
+
+    # -- Error simulation --
+    def raise_timeout(self):
+        """asyncio.TimeoutError 발생 시뮬레이션."""
+
+    def raise_rate_limit(self):
+        """RateLimitError (429) 발생 시뮬레이션."""
+
+    def raise_api_error(self):
+        """APIError (500) 발생 시뮬레이션."""
 ```
 
 #### Test JWT Generator
@@ -301,6 +346,69 @@ def create_test_jwt(
     if extra_claims:
         payload.update(extra_claims)
     return jwt.encode(payload, secret, algorithm=algorithm)
+```
+
+#### 0.3.5 인프라 테스트 Fixture
+
+실제 서비스 연결을 위한 fixture. 이 fixture들은 `tests/infra/conftest.py`에 별도 정의한다.
+
+```python
+@pytest.fixture(scope="session")
+def real_redis():
+    """실제 Redis 연결.
+    REDIS_URL 환경변수에서 읽음, 미설정 시 redis://localhost:6379/1 사용.
+    """
+
+@pytest.fixture(scope="session")
+def real_clickhouse():
+    """실제 ClickHouse 연결.
+    CLICKHOUSE_HOST, CLICKHOUSE_PORT 환경변수에서 읽음.
+    """
+
+@pytest.fixture(scope="session")
+def real_langfuse():
+    """실제 Langfuse 연결.
+    LANGFUSE_HOST 환경변수에서 읽음.
+    """
+
+@pytest.fixture(scope="session")
+def real_litellm():
+    """실제 LiteLLM Proxy 연결.
+    LITELLM_BASE_URL 환경변수에서 읽음.
+    """
+
+@pytest.fixture(scope="session")
+def real_postgres():
+    """실제 PostgreSQL 연결.
+    DATABASE_URL 환경변수에서 읽음.
+    """
+```
+
+#### 0.3.6 MockClickHouseClient
+
+```python
+class MockClickHouseClient:
+    """ClickHouse 쿼리를 인메모리로 시뮬레이션."""
+
+    def __init__(self):
+        self._query_results: dict[str, list[dict]] = {}
+        self._executed_queries: list[str] = []
+        self._connected = True
+
+    def query(self, sql: str, params: dict = None) -> list[dict]:
+        """SQL 쿼리 실행 mock."""
+
+    def set_query_result(self, sql_pattern: str, result: list[dict]) -> None:
+        """특정 SQL 패턴에 대한 반환값 사전 정의."""
+
+    def get_executed_queries(self) -> list[str]:
+        """실행된 쿼리 목록 반환 (SQL injection 검증용 spy)."""
+
+    def simulate_timeout(self):
+        """쿼리 타임아웃 시뮬레이션."""
+
+    def simulate_connection_error(self):
+        """연결 에러 시뮬레이션."""
 ```
 
 ### 0.4 CI 파이프라인 (GitHub Actions)
@@ -384,6 +492,47 @@ jobs:
         with:
           node-version: '20'
       - run: cd frontend && npm ci && npm run lint && npx tsc --noEmit
+```
+
+### 0.5 TDD 개발 사이클 실행 가이드
+
+#### 단일 테스트 실행
+```bash
+# 특정 테스트 함수 실행
+pytest tests/unit/test_jwt.py::test_should_return_401_when_jwt_missing -v
+
+# 패턴 매칭으로 실행
+pytest -k "should_return_401" -v
+
+# 마지막 실패한 테스트만 재실행
+pytest --lf
+
+# 첫 실패 시 즉시 중단
+pytest -x
+```
+
+#### Frontend 단일 테스트
+```bash
+npx vitest run tests/components/ScoreBadge.test.tsx
+```
+
+#### 커버리지 측정
+```bash
+# Backend 커버리지 (80% 라인 커버리지 목표)
+pytest --cov=app --cov-fail-under=80
+```
+
+Backend 커버리지 목표 80% (lines)는 `pyproject.toml`에 설정한다:
+
+```toml
+[tool.coverage.report]
+fail_under = 80
+```
+
+#### 병렬 실행
+```bash
+# pytest-xdist를 사용한 병렬 실행
+pytest -n auto
 ```
 
 ---

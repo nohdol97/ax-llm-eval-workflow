@@ -1194,6 +1194,21 @@ Phase 4(실험 실행 엔진), Phase 5(평가 시스템), Phase 6(분석), Phase
 
 ## 추가 엣지케이스 테스트
 
+### EC-Phase 매핑
+
+| EC | Phase |
+|---|---|
+| EC.1 동시성 | Phase 4 |
+| EC.2 데이터 경계값 | Phase 3 (파일) + Phase 4 (실험) |
+| EC.3 네트워크 장애 | Phase 4 + Phase 6 |
+| EC.4 리소스 제한 | Phase 4 + Phase 5 |
+| EC.5 인증 | Phase 2 |
+| EC.6 파일 업로드 | Phase 3 |
+| EC.7 실험 라이프사이클 | Phase 4 |
+| EC.8 Custom Evaluator | Phase 5 |
+
+엣지케이스 테스트는 해당 Phase의 기본 기능 테스트와 함께 작성한다.
+
 ### EC.1 동시성 (Concurrency) 테스트 — 5개
 
 | # | 테스트 이름 | 설명 | fixture/mock |
