@@ -270,7 +270,7 @@ frontend_net (외부 노출):
   - frontend (port 3000)
   - backend (port 8000)
 
-backend_net (internal: true, 외부 차단):
+backend_net (운영 환경에서는 VPC/방화벽으로 외부 차단):
   - backend
   - litellm
   - langfuse
@@ -285,7 +285,7 @@ backend_net (internal: true, 외부 차단):
 **CORS 정책**:
 - 운영: Frontend 도메인만 허용 (환경변수로 관리)
 - 개발: `localhost:3000`만 허용 (와일드카드 `*` 금지)
-- `credentials: true`, `allow_methods: ["GET", "POST", "DELETE"]`
+- `credentials: true`, `allow_methods: ["GET", "POST", "PATCH", "DELETE"]`
 
 ### 5.4 Custom Evaluator 보안
 

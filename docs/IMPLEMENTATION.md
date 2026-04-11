@@ -619,9 +619,9 @@ Labs는 JWT를 발급하지 않는다. 사내 Auth 서비스에서 발급된 JWT
 
 | 변수 | 필수 | 설명 | 예시 |
 |------|------|------|------|
-| `JWKS_URL` | O | JWKS 엔드포인트 URL | `https://auth.company.com/.well-known/jwks.json` |
-| `JWT_AUDIENCE` | O | JWT aud 클레임 검증 값 | `ax-llm-eval-labs` |
-| `JWT_ISSUER` | O | JWT iss 클레임 검증 값 | `https://auth.company.com` |
+| `AUTH_JWKS_URL` | O | JWKS 엔드포인트 URL | `https://auth.company.com/.well-known/jwks.json` |
+| `AUTH_JWT_AUDIENCE` | O | JWT aud 클레임 검증 값 | `ax-llm-eval-workflow` |
+| `AUTH_JWT_ISSUER` | O | JWT iss 클레임 검증 값 | `https://auth.company.com` |
 | `JWT_ALGORITHM` | X | 서명 알고리즘 (기본: RS256) | `RS256` |
 | `JWT_CLAIM_USER_ID` | X | 사용자 ID 클레임 경로 (기본: `sub`) | `sub` |
 | `JWT_CLAIM_ROLE` | X | 역할 클레임 경로 (기본: `role`) | `role` |
@@ -643,8 +643,8 @@ Labs는 JWT를 발급하지 않는다. 사내 Auth 서비스에서 발급된 JWT
     │
     ├── JWT 서명 검증 + 클레임 검증
     │   ├── exp: 만료 시간 확인
-    │   ├── iss: JWT_ISSUER와 일치 확인
-    │   ├── aud: JWT_AUDIENCE 포함 확인
+    │   ├── iss: AUTH_JWT_ISSUER와 일치 확인
+    │   ├── aud: AUTH_JWT_AUDIENCE 포함 확인
     │   └── 실패 시 → 401 AUTH_REQUIRED
     │
     ├── 클레임 추출 (설정 가능한 경로)
@@ -718,7 +718,7 @@ Labs는 JWT를 발급하지 않는다. 사내 Auth 서비스에서 발급된 JWT
 
 | 변수명 | 필수 | 설명 | 예시 | 비고 |
 |--------|------|------|------|------|
-| `PROJECTS_CONFIG` | O | 프로젝트별 Langfuse API Key 설정 (JSON) | `'[{"id":"proj_1","name":"서비스A","langfuse_public_key":"pk-lf-...","langfuse_secret_key":"sk-lf-...","langfuse_host":"https://langfuse.internal"}]'` | Secret Manager 사용 시 대체 가능 |
+| `PROJECTS_CONFIG` | O | 프로젝트별 Langfuse API Key 설정 (JSON) | `'{"projects":[{"id":"proj_1","name":"서비스A","langfuse_public_key":"pk-lf-...","langfuse_secret_key":"sk-lf-...","langfuse_host":"https://langfuse.internal"}]}'` | Secret Manager 사용 시 대체 가능 |
 | `REDIS_URL` | O | Labs 상태 저장용 Redis 연결 URL | `redis://redis:6379/0` | |
 | `LITELLM_BASE_URL` | O | LiteLLM Proxy 내부 URL | `http://litellm:4000` | |
 | `LITELLM_MASTER_KEY` | O | LiteLLM Proxy Master Key | `sk-litellm-master-...` | 최소 32자 |
@@ -727,18 +727,18 @@ Labs는 JWT를 발급하지 않는다. 사내 Auth 서비스에서 발급된 JWT
 | `CLICKHOUSE_DATABASE` | X | ClickHouse 데이터베이스 (기본: langfuse) | `langfuse` | |
 | `CLICKHOUSE_USER` | O | ClickHouse 읽기 전용 계정 | `labs_readonly` | |
 | `CLICKHOUSE_PASSWORD` | O | ClickHouse 비밀번호 | `readonly_password` | |
-| `JWKS_URL` | O | JWKS 엔드포인트 URL | `https://auth.company.com/.well-known/jwks.json` | |
-| `JWT_AUDIENCE` | O | JWT aud 클레임 검증 값 | `ax-llm-eval-labs` | |
-| `JWT_ISSUER` | O | JWT iss 클레임 검증 값 | `https://auth.company.com` | |
+| `AUTH_JWKS_URL` | O | JWKS 엔드포인트 URL | `https://auth.company.com/.well-known/jwks.json` | |
+| `AUTH_JWT_AUDIENCE` | O | JWT aud 클레임 검증 값 | `ax-llm-eval-workflow` | |
+| `AUTH_JWT_ISSUER` | O | JWT iss 클레임 검증 값 | `https://auth.company.com` | |
 | `JWT_ALGORITHM` | X | JWT 서명 알고리즘 (기본: RS256) | `RS256` | |
 | `JWT_CLAIM_USER_ID` | X | 사용자 ID 클레임 경로 (기본: sub) | `sub` | |
 | `JWT_CLAIM_ROLE` | X | 역할 클레임 경로 (기본: role) | `role` | |
 | `JWT_CLAIM_GROUPS` | X | 그룹 클레임 경로 (기본: groups) | `groups` | |
-| `CORS_ORIGINS` | O | CORS 허용 오리진 (쉼표 구분) | `http://localhost:3000,https://labs.company.com` | 와일드카드 `*` 금지 |
+| `CORS_ALLOWED_ORIGINS` | O | CORS 허용 오리진 (쉼표 구분) | `http://localhost:3000,https://labs.company.com` | 와일드카드 `*` 금지 |
 | `DOCKER_SOCKET` | X | Docker 소켓 경로 (기본: /var/run/docker.sock) | `/var/run/docker.sock` | Custom Evaluator용 |
-| `SANDBOX_IMAGE` | X | 샌드박스 Docker 이미지 (기본: ax-eval-sandbox) | `ax-eval-sandbox:latest` | |
-| `SANDBOX_TIMEOUT_SEC` | X | 샌드박스 아이템 타임아웃 (기본: 5) | `5` | |
-| `SANDBOX_MEMORY_LIMIT` | X | 샌드박스 메모리 제한 (기본: 128m) | `128m` | |
+| `EVAL_SANDBOX_IMAGE` | X | 샌드박스 Docker 이미지 (기본: ax-eval-sandbox) | `ax-eval-sandbox:1.0.0` | |
+| `EVAL_SANDBOX_TIMEOUT_SEC` | X | 샌드박스 아이템 타임아웃 (기본: 5) | `5` | |
+| `EVAL_SANDBOX_MEMORY_LIMIT` | X | 샌드박스 메모리 제한 (기본: 128m) | `128m` | |
 | `LOG_LEVEL` | X | 로그 레벨 (기본: INFO) | `INFO` | DEBUG, INFO, WARNING, ERROR |
 | `SECRET_MANAGER_PROVIDER` | X | Secret Manager 제공자 (gcp/aws/none) | `gcp` | none이면 환경변수만 사용 |
 | `SECRET_MANAGER_PROJECT` | X | GCP Secret Manager 프로젝트 ID | `my-gcp-project` | SECRET_MANAGER_PROVIDER=gcp 시 필수 |
@@ -797,7 +797,7 @@ Labs는 JWT를 발급하지 않는다. 사내 Auth 서비스에서 발급된 JWT
 | 항목 | 개발 (.env.development) | 운영 (.env.production) |
 |------|------------------------|----------------------|
 | `REDIS_URL` | `redis://localhost:6379/0` | Secret Manager |
-| `CORS_ORIGINS` | `http://localhost:3000` | `https://labs.company.com` |
+| `CORS_ALLOWED_ORIGINS` | `http://localhost:3000` | `https://labs.company.com` |
 | `LOG_LEVEL` | `DEBUG` | `INFO` |
 | `NEXT_PUBLIC_API_BASE_URL` | `http://localhost:8000/api/v1` | `https://api.labs.company.com/api/v1` |
 | LLM Provider Keys | `.env` 파일 | Secret Manager |

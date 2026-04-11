@@ -2,6 +2,9 @@
 # ClickHouse 읽기 전용 계정 설정
 # Labs Backend에서 분석/대시보드용 직접 쿼리 시 사용하는 읽기 전용 계정 생성
 #
+# 사용법 (ClickHouse 컨테이너가 healthy 상태가 된 후 수동 실행):
+#   docker compose exec clickhouse bash /scripts/setup-clickhouse-readonly.sh
+#
 # 보안 규칙:
 #   - ClickHouse 직접 쿼리는 읽기 전용 계정 필수
 #   - 파라미터화된 쿼리(parameterized query) 필수 (f-string 금지)

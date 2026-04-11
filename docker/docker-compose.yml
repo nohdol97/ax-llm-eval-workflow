@@ -79,7 +79,7 @@ services:
       - backend_net
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:4000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -126,7 +126,7 @@ services:
       - backend_net
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/api/public/health"]
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/api/public/health"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -175,7 +175,9 @@ services:
     volumes:
       - clickhouse_data:/var/lib/clickhouse
       - clickhouse_logs:/var/log/clickhouse-server
-      - ./scripts/setup-clickhouse-readonly.sh:/docker-entrypoint-initdb.d/setup-readonly.sh:ro
+      # 읽기 전용 계정 설정은 ClickHouse 기동 후 수동 실행:
+      # docker compose exec clickhouse bash /scripts/setup-clickhouse-readonly.sh
+      - ./scripts/setup-clickhouse-readonly.sh:/scripts/setup-clickhouse-readonly.sh:ro
     networks:
       - backend_net
     restart: unless-stopped
@@ -234,5 +236,5 @@ networks:
     # 외부 접근 가능 (frontend, backend)
   backend_net:
     driver: bridge
-    internal: true
-    # 외부 접근 차단 (litellm, langfuse, postgres, clickhouse, redis)
+    # 개발 환경: LiteLLM이 외부 LLM Provider API를 호출해야 하므로 internal 미설정.
+    # 운영 환경에서는 VPC/방화벽 규칙으로 내부 서비스 접근을 제한해야 한다.

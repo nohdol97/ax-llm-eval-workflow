@@ -27,7 +27,7 @@
 
 네트워크 분리:
 - `frontend_net`: 외부 노출 (frontend, backend)
-- `backend_net` (internal: true): 내부 서비스 간 통신 (backend, litellm, langfuse, postgres, clickhouse, redis)
+- `backend_net`: 내부 서비스 간 통신 (backend, litellm, langfuse, postgres, clickhouse, redis). 운영 환경에서는 VPC/방화벽으로 외부 접근 차단
 
 내부 서비스는 `expose:`만 사용하고 `ports:`는 사용하지 않는다.
 
@@ -44,7 +44,7 @@
 # Langfuse
 LANGFUSE_SECRET_KEY=
 LANGFUSE_PUBLIC_KEY=
-LANGFUSE_HOST=http://langfuse:3001
+LANGFUSE_HOST=http://langfuse:3000
 
 # LiteLLM
 LITELLM_MASTER_KEY=
@@ -61,9 +61,9 @@ CLICKHOUSE_PASSWORD=
 REDIS_URL=redis://redis:6379/0
 
 # JWT
-JWKS_URL=
-JWT_AUDIENCE=
-JWT_ISSUER=
+AUTH_JWKS_URL=
+AUTH_JWT_AUDIENCE=
+AUTH_JWT_ISSUER=
 
 # LLM Provider Keys (LiteLLM에서만 사용)
 AZURE_API_KEY=
@@ -72,12 +72,15 @@ GEMINI_API_KEY=
 ```
 
 #### 1-4. ClickHouse 읽기 전용 계정 생성 스크립트
-`scripts/setup_clickhouse_readonly.sh` 파일로 작성한다.
+`docker/scripts/setup-clickhouse-readonly.sh` 파일로 작성한다.
 
 - `labs_readonly` 사용자 생성
 - `GRANT SELECT ON langfuse.*` 권한만 부여
 - INSERT/UPDATE/DELETE 권한 없음
-- docker-compose 환경에서 초기 실행 시 자동 적용되도록 구성
+- ClickHouse는 `docker-entrypoint-initdb.d`를 지원하지 않으므로, 컨테이너 기동 후 수동 실행:
+  ```bash
+  docker compose exec clickhouse bash /scripts/setup-clickhouse-readonly.sh
+  ```
 
 #### 1-5. ax-eval-sandbox Docker 이미지 빌드
 Custom Code Evaluator 실행을 위한 샌드박스 이미지.
@@ -104,21 +107,24 @@ docker compose up -d
 # 2. 서비스 상태 확인
 docker compose ps  # 모든 서비스 healthy/running
 
-# 3. Langfuse 접속
+# 3. ClickHouse 읽기 전용 계정 생성 (초기 1회)
+docker compose exec clickhouse bash /scripts/setup-clickhouse-readonly.sh
+
+# 4. Langfuse 접속
 curl http://localhost:3001/api/public/health
 
-# 4. LiteLLM 헬스체크
+# 5. LiteLLM 헬스체크
 curl http://localhost:4000/health
 
-# 5. ClickHouse 읽기 전용 계정 확인
+# 6. ClickHouse 읽기 전용 계정 확인
 docker compose exec clickhouse clickhouse-client \
   --user labs_readonly --password <password> \
   --query "SELECT 1"
 
-# 6. Redis 연결 확인
+# 7. Redis 연결 확인
 docker compose exec redis redis-cli ping  # PONG
 
-# 7. sandbox 이미지 빌드
+# 8. sandbox 이미지 빌드
 docker build -t ax-eval-sandbox:1.0.0 docker/eval-sandbox/
 ```
 

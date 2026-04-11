@@ -128,9 +128,22 @@ def _process_line(line: str) -> dict:
     # 제한된 네임스페이스에서 코드 실행
     namespace = _make_restricted_namespace()
 
+    # SIGALRM 타임아웃을 exec() 이전에 설정하여
+    # 모듈 레벨 무한루프도 타임아웃으로 차단한다.
+    signal.signal(signal.SIGALRM, _timeout_handler)
+    signal.alarm(TIMEOUT_SECONDS)
+
     try:
         exec(code, namespace)  # noqa: S102 — 샌드박스 내 의도적 exec
+    except EvalTimeoutError:
+        return {
+            "id": item_id,
+            "status": "error",
+            "error_code": "EVALUATOR_TIMEOUT",
+            "error_message": f"Execution exceeded {TIMEOUT_SECONDS}s timeout",
+        }
     except Exception as e:
+        signal.alarm(0)
         return {
             "id": item_id,
             "status": "error",
@@ -141,6 +154,7 @@ def _process_line(line: str) -> dict:
     # evaluate 함수 존재 확인
     evaluate_fn = namespace.get("evaluate")
     if evaluate_fn is None or not callable(evaluate_fn):
+        signal.alarm(0)
         return {
             "id": item_id,
             "status": "error",
@@ -148,10 +162,7 @@ def _process_line(line: str) -> dict:
             "error_message": "Function 'evaluate' not defined in code",
         }
 
-    # SIGALRM 타임아웃 설정 + evaluate 함수 호출
-    signal.signal(signal.SIGALRM, _timeout_handler)
-    signal.alarm(TIMEOUT_SECONDS)
-
+    # evaluate 함수 호출 (타이머는 exec() 이전에 이미 설정됨)
     try:
         score = evaluate_fn(output, expected, metadata)
     except EvalTimeoutError:
