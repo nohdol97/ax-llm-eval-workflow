@@ -1169,8 +1169,8 @@ Phase 4(실험 실행 엔진), Phase 5(평가 시스템), Phase 6(분석), Phase
 | Fixture 이름 | 용도 | 사용 범위 |
 |-------------|------|-----------|
 | `fake_redis` | fakeredis 인스턴스, 테스트 간 격리 | Phase 4 (Redis 상태 관리) |
-| `litellm_mock` | LiteLLM `acompletion()` mock | Phase 4, 5 (LLM 호출) |
-| `langfuse_mock` | Langfuse SDK client mock (spy) | Phase 4, 5 (trace/score 기록) |
+| `mock_litellm` | LiteLLM `acompletion()` mock | Phase 4, 5 (LLM 호출) |
+| `mock_langfuse` | Langfuse SDK client mock (spy) | Phase 4, 5 (trace/score 기록) |
 | `clickhouse_mock` | ClickHouse 쿼리 결과 mock | Phase 6 (분석 쿼리) |
 | `jwt_token_factory` | role별 JWT 토큰 생성 (admin, user, viewer) | Phase 4, 5 (권한 검증) |
 | `sample_dataset_items` | 테스트용 데이터셋 아이템 10개 | Phase 4 (배치 실험) |

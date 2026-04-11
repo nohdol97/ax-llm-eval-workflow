@@ -18,7 +18,7 @@
 - `backend/tests/unit/` — 단위 테스트
 - `backend/tests/integration/` — 통합 테스트
 - `backend/tests/infra/` — 인프라 연결 테스트
-- pytest.ini 또는 pyproject.toml 테스트 설정
+- pyproject.toml 테스트 설정
 - pytest-asyncio, pytest-cov, fakeredis, httpx 의존성
 
 #### 0-2. 공통 Mock/Fixture 구현
@@ -278,7 +278,7 @@ curl -H "Authorization: Bearer <valid_jwt>" http://localhost:8000/api/v1/health
 ```
 
 ### 테스트 명세 참조
-- TEST_SPEC.md Phase 2 (Backend 기초 42개)
+- TEST_SPEC.md Phase 2 (Backend 기초 53개)
 
 ---
 
@@ -368,7 +368,7 @@ curl -X POST -H "Authorization: Bearer <jwt>" \
 ```
 
 ### 테스트 명세 참조
-- TEST_SPEC.md Phase 3 (Core API 99개)
+- TEST_SPEC.md Phase 3 (Core API 116개)
 
 ---
 
@@ -484,7 +484,7 @@ curl -X POST "http://localhost:8000/api/v1/experiments/<id>/pause"
 ```
 
 ### 테스트 명세 참조
-- TEST_SPEC_PART2.md Phase 4 (실험 엔진 45개)
+- TEST_SPEC_PART2.md Phase 4 (실험 엔진 48개)
 
 ---
 
@@ -600,7 +600,7 @@ curl -X POST -H "Authorization: Bearer <jwt>" \
 ```
 
 ### 테스트 명세 참조
-- TEST_SPEC_PART2.md Phase 5 (평가 시스템 52개)
+- TEST_SPEC_PART2.md Phase 5 (평가 시스템 40개)
 
 ---
 
@@ -875,7 +875,7 @@ open http://localhost:3000
 ```
 
 ### 테스트 명세 참조
-- TEST_SPEC_PART2.md Phase 7 (Frontend 22개) + 엣지케이스 52개
+- TEST_SPEC_PART2.md Phase 7 (Frontend 15개) + 엣지케이스 52개
 
 ---
 
