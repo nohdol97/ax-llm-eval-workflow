@@ -107,8 +107,8 @@ Custom Code Evaluator 실행을 위한 샌드박스 이미지.
 
 ### 검증 방법
 ```bash
-# 1. 전체 서비스 기동
-docker compose up -d
+# 1. 인프라 서비스만 기동 (frontend/backend는 아직 없으므로 제외)
+docker compose -f docker/docker-compose.yml up -d postgres clickhouse redis langfuse litellm
 
 # 2. 서비스 상태 확인
 docker compose ps  # 모든 서비스 healthy/running
@@ -834,7 +834,7 @@ Phase 1-5 (sandbox 이미지) ──▶ Phase 5-3 (Custom Code Evaluator)
 
 | Phase | 핵심 마일스톤 | 검증 기준 |
 |-------|-------------|-----------|
-| 1 | `docker compose up -d`로 전체 인프라 가동 | 모든 서비스 healthy, Langfuse/LiteLLM 접속 가능 |
+| 1 | `docker compose -f docker/docker-compose.yml up -d postgres clickhouse redis langfuse litellm`으로 인프라 가동 | 모든 서비스 healthy, Langfuse/LiteLLM 접속 가능 |
 | 2 | FastAPI 서버 기동, JWT 인증 작동 | `/health` 200, 인증 없는 요청 401 |
 | 3 | Langfuse 프록시 API 전체 동작 | curl로 프롬프트/데이터셋/모델 CRUD 가능 |
 | 4 | 단일 테스트 SSE 스트리밍, 배치 실험 실행 | LLM 응답 수신, Langfuse trace 기록, 실험 제어 |

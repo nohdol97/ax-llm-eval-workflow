@@ -151,6 +151,8 @@ Request Body:
     "stream": true
 }
 
+**검증 규칙**: prompt.source가 'langfuse'이면 name/version 필수, content 무시. 'inline'이면 content 필수, name/version 무시.
+
 Response (stream=false):
 {
     "trace_id": "string",
@@ -244,6 +246,8 @@ Request Body:
     "concurrency": 5,
     "system_prompt": "string (optional)"
 }
+
+**검증 규칙**: prompt_configs, model_configs, evaluators는 각각 최소 1개 이상 필수. dataset_name은 Langfuse에 존재해야 함.
 
 Response:
 {

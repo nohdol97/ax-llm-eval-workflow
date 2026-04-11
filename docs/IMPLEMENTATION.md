@@ -605,6 +605,18 @@ async def list_prompts(project_id: str):
 - 또는 admin 전용 `POST /api/v1/admin/reload-config` 엔드포인트 제공
 - reload 시 기존 클라이언트 인스턴스는 유지, 새로운/변경된 것만 업데이트
 
+### 3.7 LiteLLM Proxy 호출 시 인증
+
+Backend에서 LiteLLM Proxy 호출 시 `LITELLM_MASTER_KEY`를 `Authorization: Bearer {key}` 헤더로 전달한다. litellm Python SDK 사용 시:
+
+```python
+import os
+import litellm
+
+litellm.api_key = os.environ['LITELLM_MASTER_KEY']
+litellm.api_base = os.environ['LITELLM_BASE_URL']
+```
+
 ---
 
 ## 4. Auth 연동 상세

@@ -222,6 +222,8 @@ def evaluate(output: str, expected: str, metadata: dict) -> float:
 | statistics | 통계 함수 |
 | unicodedata | 유니코드 처리 |
 
+**차단된 함수**: print, exec, eval, open, compile, __import__, globals, locals, getattr, setattr, delattr, type 등은 보안상 사용할 수 없다.
+
 ### 4.3 실행 환경
 
 ```
