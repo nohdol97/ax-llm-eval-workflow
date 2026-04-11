@@ -521,6 +521,13 @@ jobs:
 | 9 | `test_should_call_flush_when_flush_invoked` | `flush()` 호출 | Langfuse SDK의 `flush()` 메서드가 호출됨 | mock Langfuse | - |
 | 10 | `test_should_create_trace_with_correct_metadata_when_called` | `create_trace(name, metadata)` 호출 | metadata에 `source: "ax-llm-eval-workflow"` 자동 추가 | mock Langfuse | metadata가 None인 경우 |
 
+#### 2.2.4 에러 코드 테스트
+
+| # | 테스트 이름 | 입력 | 기대 출력 | 필요 fixture/mock | 엣지케이스 |
+|---|------------|------|----------|-------------------|-----------|
+| 11 | `test_should_return_CLICKHOUSE_ERROR_when_clickhouse_query_fails` | ClickHouse 쿼리 실행 중 예외 발생 | 502, `{"error": {"code": "CLICKHOUSE_ERROR"}}` | mock_clickhouse (예외 발생) | 타임아웃, 연결 실패, 잘못된 쿼리 |
+| 12 | `test_should_return_SANDBOX_VIOLATION_when_import_blocked_module` | Custom Evaluator 코드에서 비허용 모듈 import 시도 | 400, `{"error": {"code": "SANDBOX_VIOLATION"}}` | runner.py mock | `os`, `sys`, `subprocess` 각각 시도 |
+
 ### 2.3 Redis Client 테스트
 
 **파일**: `tests/unit/test_redis_client.py`
@@ -562,6 +569,21 @@ jobs:
 | 16 | `test_should_refresh_ttl_when_item_completed` | 아이템 완료 이벤트 처리 | TTL이 86400초로 재설정 | mock_redis | - |
 | 17 | `test_should_expire_key_when_ttl_reached` | TTL이 0이 된 키 조회 | `None` 반환 (키 만료) | mock_redis (TTL 시뮬레이션) | - |
 | 18 | `test_should_apply_same_ttl_to_related_keys_when_terminal` | 실험 종료 시 Run Hash, Run Set, Failed Items Set | 모든 관련 키의 TTL이 3600초 | mock_redis | - |
+
+#### 2.3.5 Redis 필드 저장 테스트
+
+| # | 테스트 이름 | 입력 | 기대 출력 | 필요 fixture/mock | 엣지케이스 |
+|---|------------|------|----------|-------------------|-----------|
+| 19 | `test_should_store_started_by_from_jwt_sub_when_experiment_created` | JWT `sub: "user_001"`로 실험 생성 | Redis Hash에 `started_by = "user_001"` 저장 | mock_redis, `jwt_user(sub="user_001")` | `sub` 값이 빈 문자열인 경우 |
+| 20 | `test_should_cleanup_expired_experiment_from_sorted_set_when_listing` | `ax:project:{pid}:experiments` Sorted Set에 만료된 experiment_id 포함 | 목록 조회 시 만료된 키를 Sorted Set에서 제거 (lazy cleanup) | mock_redis (만료된 키 시뮬레이션) | 만료된 키가 여러 개인 경우 |
+
+#### 2.3.6 상태 전이 추가 검증
+
+| # | 테스트 이름 | 입력 | 기대 출력 | 필요 fixture/mock | 엣지케이스 |
+|---|------------|------|----------|-------------------|-----------|
+| 21 | `test_should_return_409_when_resume_called_on_running_experiment` | `status="running"` 실험에 `POST /resume` | 409, `{"error": {"code": "STATE_CONFLICT"}}` | mock_redis | - |
+| 22 | `test_should_return_409_when_cancel_called_on_completed_experiment` | `status="completed"` 실험에 `POST /cancel` | 409, `{"error": {"code": "STATE_CONFLICT"}}` | mock_redis | - |
+| 23 | `test_should_return_409_when_cancel_called_on_failed_experiment` | `status="failed"` 실험에 `POST /cancel` | 409, `{"error": {"code": "STATE_CONFLICT"}}` | mock_redis | - |
 
 ---
 
@@ -754,6 +776,54 @@ jobs:
 | 9 | `test_should_include_match_context_when_results_found` | 매칭 결과 존재 | 각 결과 아이템에 `match_context` 필드 포함 | mock_langfuse | - |
 | 10 | `test_should_handle_special_characters_in_query_when_searched` | `q=test%20"prompt"` (특수문자, 공백, 따옴표) | 200, 에러 없이 처리 | mock_langfuse | SQL injection 시도 문자열, HTML 태그, 한글 검색어 |
 | 11 | `test_should_handle_empty_query_when_q_is_empty_string` | `q=` (빈 문자열) | 422, `VALIDATION_ERROR` 또는 빈 결과 | 없음 | 공백만 포함된 쿼리 `q=%20%20` |
+
+### 3.7 평가 함수 API 테스트
+
+**파일**: `tests/integration/test_evaluators_api.py`
+
+#### 3.7.1 GET /api/v1/evaluators/built-in -- 빌트인 평가 함수 목록
+
+| # | 테스트 이름 | 입력 | 기대 출력 | 필요 fixture/mock | 엣지케이스 |
+|---|------------|------|----------|-------------------|-----------|
+| 1 | `test_should_return_builtin_evaluator_list_when_called` | `GET /api/v1/evaluators/built-in` | 200, `{"data": {"evaluators": [...]}}` | 없음 | - |
+| 2 | `test_should_return_all_13_evaluators_when_list_requested` | `GET /api/v1/evaluators/built-in` | 200, evaluators 배열 길이 = 13, 각 항목에 `name`, `description`, `parameters` 포함 | 없음 | - |
+
+#### 3.7.2 POST /api/v1/evaluators/validate -- 커스텀 코드 검증
+
+| # | 테스트 이름 | 입력 | 기대 출력 | 필요 fixture/mock | 엣지케이스 |
+|---|------------|------|----------|-------------------|-----------|
+| 3 | `test_should_validate_custom_code_successfully_when_valid_code_provided` | `POST` body: `{"code": "def evaluate(output, expected, metadata):\n    return 1.0"}` | 200, `{"data": {"valid": true}}` | `jwt_admin` | - |
+| 4 | `test_should_return_INVALID_EVALUATOR_when_syntax_error_in_code` | `POST` body: `{"code": "def evaluate(output, expected, metadata)\n    return 1.0"}` (콜론 누락) | 400, `{"error": {"code": "INVALID_EVALUATOR"}}` | `jwt_admin` | 들여쓰기 에러, 미닫힌 괄호 |
+| 5 | `test_should_return_INVALID_EVALUATOR_when_no_evaluate_function` | `POST` body: `{"code": "def my_func():\n    return 1.0"}` | 400, `{"error": {"code": "INVALID_EVALUATOR", "message": "..."}}` | `jwt_admin` | 빈 코드 문자열 |
+| 6 | `test_should_return_test_results_for_each_case_when_test_cases_provided` | `POST` body: `{"code": "...", "test_cases": [{"output": "a", "expected": "a"}, {"output": "b", "expected": "a"}]}` | 200, `{"data": {"valid": true, "results": [{"score": 1.0}, {"score": 0.0}]}}` | `jwt_admin` | 빈 test_cases 배열 |
+
+### 3.8 실험 삭제 API 테스트
+
+**파일**: `tests/integration/test_experiments_api.py`
+
+#### 3.8.1 DELETE /api/v1/experiments/{id} -- 실험 삭제
+
+| # | 테스트 이름 | 입력 | 기대 출력 | 필요 fixture/mock | 엣지케이스 |
+|---|------------|------|----------|-------------------|-----------|
+| 1 | `test_should_delete_experiment_when_admin_and_experiment_completed` | admin JWT, `DELETE /api/v1/experiments/{id}`, 실험 상태 `completed` | 200, 삭제 성공 | mock_redis (`status=completed`), `jwt_admin` | - |
+| 2 | `test_should_return_403_when_non_admin_deletes_experiment` | user JWT, `DELETE /api/v1/experiments/{id}` | 403, `{"error": {"code": "FORBIDDEN"}}` | mock_redis, `jwt_user` | viewer JWT도 403 |
+| 3 | `test_should_return_409_when_deleting_running_experiment` | admin JWT, 실험 상태 `running` | 409, `{"error": {"code": "STATE_CONFLICT"}}` | mock_redis (`status=running`), `jwt_admin` | - |
+| 4 | `test_should_return_409_when_deleting_paused_experiment` | admin JWT, 실험 상태 `paused` | 409, `{"error": {"code": "STATE_CONFLICT"}}` | mock_redis (`status=paused`), `jwt_admin` | - |
+| 5 | `test_should_return_404_when_deleting_nonexistent_experiment` | admin JWT, 존재하지 않는 `experiment_id` | 404, `{"error": {"code": "EXPERIMENT_NOT_FOUND"}}` | mock_redis (빈 상태), `jwt_admin` | - |
+
+### 3.9 실험 목록 조회 API 테스트
+
+**파일**: `tests/integration/test_experiments_api.py`
+
+#### 3.9.1 GET /api/v1/experiments -- 목록 조회
+
+| # | 테스트 이름 | 입력 | 기대 출력 | 필요 fixture/mock | 엣지케이스 |
+|---|------------|------|----------|-------------------|-----------|
+| 1 | `test_should_return_paginated_list_when_experiments_exist` | `GET /api/v1/experiments?project_id=proj_1&page=1&page_size=10` | 200, `{"data": {"experiments": [...], "total": N, "page": 1}}` | mock_redis (실험 15개), `jwt_user` | - |
+| 2 | `test_should_filter_by_status_when_status_param_provided` | `GET /api/v1/experiments?project_id=proj_1&status=running` | 200, 모든 실험의 `status`가 `"running"` | mock_redis, `jwt_user` | `status=completed`, `status=failed` |
+| 3 | `test_should_return_empty_when_no_experiments_in_project` | `GET /api/v1/experiments?project_id=proj_empty` | 200, `{"data": {"experiments": [], "total": 0}}` | mock_redis (빈 상태), `jwt_user` | - |
+| 4 | `test_should_remove_expired_experiments_from_list_when_lazy_cleanup_triggered` | TTL이 만료된 실험이 Sorted Set에 남아있는 경우 | 200, 만료된 실험이 목록에서 제외되고 Sorted Set에서도 제거됨 | mock_redis (만료된 키 시뮬레이션), `jwt_user` | - |
+| 5 | `test_should_return_correct_total_count_when_page_requested` | `page=2&page_size=5`, 총 실험 13개 | 200, `total: 13`, `experiments` 배열 길이 = 5 | mock_redis, `jwt_user` | 마지막 페이지 (page=3) → 3개 반환 |
 
 ---
 
