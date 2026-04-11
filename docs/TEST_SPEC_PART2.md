@@ -366,6 +366,41 @@ Phase 4(실험 실행 엔진), Phase 5(평가 시스템), Phase 6(분석), Phase
 | **fixture/mock** | LiteLLM mock (정상 응답), Langfuse mock (모든 호출에서 `ConnectionError`) |
 | **엣지케이스** | Langfuse가 간헐적으로 실패 (5회 중 2회 성공) → 성공한 건만 기록 |
 
+#### 4.3.15 SSE 에러 이벤트 (아이템 실패)
+
+| 항목 | 내용 |
+|------|------|
+| **테스트 이름** | `test_should_emit_sse_error_event_when_batch_item_fails` |
+| **기대 결과** | 배치 아이템 실패 시 `event: error` SSE 이벤트 발생, 실패 아이템 ID와 에러 메시지 포함 |
+
+#### 4.3.16 SSE fatal error 이벤트
+
+| 항목 | 내용 |
+|------|------|
+| **테스트 이름** | `test_should_emit_sse_fatal_error_when_experiment_critically_fails` |
+| **기대 결과** | 실험 치명적 오류 시 `event: fatal_error` SSE 이벤트 발생, 실험 종료 |
+
+#### 4.3.17 SSE 연결 종료
+
+| 항목 | 내용 |
+|------|------|
+| **테스트 이름** | `test_should_close_sse_connection_after_experiment_complete` |
+| **기대 결과** | `event: experiment_complete` 이벤트 이후 SSE 스트림 정상 종료 |
+
+#### 4.3.18 재시도 아이템 progress 이벤트
+
+| 항목 | 내용 |
+|------|------|
+| **테스트 이름** | `test_should_emit_progress_events_for_retried_items_after_retry` |
+| **기대 결과** | retry-failed 후 재시도 아이템에 대해 progress 이벤트 정상 발생 |
+
+#### 4.3.19 Langfuse 영속화 (최종 상태)
+
+| 항목 | 내용 |
+|------|------|
+| **테스트 이름** | `test_should_persist_final_state_to_langfuse_metadata_when_experiment_completes` |
+| **기대 결과** | 실험 완료 시 최종 상태(total_items, completed, failed, scores)가 Langfuse metadata에 기록됨 |
+
 ---
 
 ### 4.4 Redis 상태 전이 테스트
@@ -696,6 +731,27 @@ Phase 4(실험 실행 엔진), Phase 5(평가 시스템), Phase 6(분석), Phase
 | **fixture/mock** | LiteLLM mock (전달된 messages 캡처 spy) |
 | **엣지케이스** | 커스텀 프롬프트에 `{input}`, `{output}` 자리 표시자가 없는 경우 → 그대로 전달 (치환 없음). `{expected}`가 없는 경우 (expected 없는 평가) |
 
+#### 5.2.6 Judge 점수 클램핑
+
+| 항목 | 내용 |
+|------|------|
+| **테스트 이름** | `test_should_clamp_judge_score_when_value_exceeds_10` |
+| **기대 결과** | Judge LLM이 10 초과 값 반환 시 10으로 클램핑 후 정규화 (→ 1.0) |
+
+#### 5.2.7 Judge LLM 타임아웃
+
+| 항목 | 내용 |
+|------|------|
+| **테스트 이름** | `test_should_return_timeout_error_when_judge_llm_times_out` |
+| **기대 결과** | Judge LLM 호출이 타임아웃 → score=null, error 메시지에 timeout 포함 |
+
+#### 5.2.8 Built-in 프롬프트 (accuracy)
+
+| 항목 | 내용 |
+|------|------|
+| **테스트 이름** | `test_should_use_builtin_prompt_when_accuracy_type_selected` |
+| **기대 결과** | accuracy 타입 선택 시 시스템 내장 Judge 프롬프트가 LLM에 전달됨 |
+
 ---
 
 ### 5.3 Custom Code Evaluator (Docker 샌드박스)
@@ -889,6 +945,76 @@ Phase 4(실험 실행 엔진), Phase 5(평가 시스템), Phase 6(분석), Phase
 | **기대 결과** | admin: 정상 실행. user: HTTP 403 `FORBIDDEN`. viewer: HTTP 403 `FORBIDDEN` |
 | **fixture/mock** | JWT mock (role별), FastAPI TestClient |
 | **엣지케이스** | JWT에 role 클레임이 누락된 경우 → 403 |
+
+#### 5.3.20 evaluate가 callable이 아닌 경우
+
+| 항목 | 내용 |
+|------|------|
+| **테스트 이름** | `test_should_return_error_when_evaluate_is_not_callable` |
+| **기대 결과** | `evaluate`가 함수가 아닌 변수로 정의된 경우 → error 응답, `EVALUATOR_ERROR` |
+
+#### 5.3.21 evaluate 런타임 예외
+
+| 항목 | 내용 |
+|------|------|
+| **테스트 이름** | `test_should_return_error_when_evaluate_raises_runtime_exception` |
+| **기대 결과** | evaluate 함수 내부에서 RuntimeError 발생 → error 응답, 예외 메시지 포함 |
+
+#### 5.3.22 evaluate 재귀 오버플로우
+
+| 항목 | 내용 |
+|------|------|
+| **테스트 이름** | `test_should_return_error_when_evaluate_causes_recursion_overflow` |
+| **기대 결과** | 무한 재귀 → RecursionError 포착, error 응답 반환 |
+
+#### 5.3.23 Docker 컨테이너 OOM
+
+| 항목 | 내용 |
+|------|------|
+| **테스트 이름** | `test_should_return_error_when_docker_container_oom_killed` |
+| **기대 결과** | 메모리 초과 시 컨테이너 OOM kill → error 응답, `EVALUATOR_OOM` |
+
+#### 5.3.24 위험한 내장 함수 차단
+
+| 항목 | 내용 |
+|------|------|
+| **테스트 이름** | `test_should_block_each_dangerous_builtin` |
+| **기대 결과** | print, exec, eval, open, compile, globals 각각에 대해 호출 시 차단 확인 |
+
+#### 5.3.25 int 반환값 → float 변환
+
+| 항목 | 내용 |
+|------|------|
+| **테스트 이름** | `test_should_return_float_when_evaluate_returns_int` |
+| **기대 결과** | evaluate가 int(1) 반환 → score가 float(1.0)으로 변환되어 반환 |
+
+#### 5.3.26 dict 반환값 → 에러
+
+| 항목 | 내용 |
+|------|------|
+| **테스트 이름** | `test_should_return_error_when_evaluate_returns_dict` |
+| **기대 결과** | evaluate가 dict 반환 → error 응답, 유효하지 않은 반환 타입 메시지 |
+
+#### 5.3.27 bool True 반환값 → 1.0
+
+| 항목 | 내용 |
+|------|------|
+| **테스트 이름** | `test_should_return_success_when_evaluate_returns_bool_true` |
+| **기대 결과** | evaluate가 True 반환 → score=1.0으로 변환되어 성공 응답 |
+
+#### 5.3.28 Broken Pipe 처리
+
+| 항목 | 내용 |
+|------|------|
+| **테스트 이름** | `test_should_handle_broken_pipe_gracefully_when_stdout_closed` |
+| **기대 결과** | stdout이 닫힌 상태에서 출력 시도 → BrokenPipeError 포착, 정상 종료 |
+
+#### 5.3.29 에러 응답 스키마 검증
+
+| 항목 | 내용 |
+|------|------|
+| **테스트 이름** | `test_should_verify_error_response_schema_has_all_required_fields` |
+| **기대 결과** | 에러 응답에 `id`, `status`, `error` 필드가 모두 포함됨을 검증 |
 
 ---
 

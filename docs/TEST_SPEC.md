@@ -734,6 +734,19 @@ pytest -n auto
 | 22 | `test_should_return_409_when_cancel_called_on_completed_experiment` | `status="completed"` 실험에 `POST /cancel` | 409, `{"error": {"code": "STATE_CONFLICT"}}` | mock_redis | - |
 | 23 | `test_should_return_409_when_cancel_called_on_failed_experiment` | `status="failed"` 실험에 `POST /cancel` | 409, `{"error": {"code": "STATE_CONFLICT"}}` | mock_redis | - |
 
+#### 2.3.7 Run Hash 필드 테스트
+
+| # | 테스트 이름 | 기대 결과 |
+|---|------------|----------|
+| 24 | `test_should_hincrby_run_completed_items_when_item_completes` | 아이템 완료 시 `HINCRBY run:{id} completed_items 1` 호출 확인 |
+| 25 | `test_should_hincrby_run_failed_items_when_item_fails` | 아이템 실패 시 `HINCRBY run:{id} failed_items 1` 호출 확인 |
+| 26 | `test_should_hincrbyfloat_run_total_cost_when_item_completes` | 아이템 완료 시 `HINCRBYFLOAT run:{id} total_cost {cost}` 호출 확인 |
+| 27 | `test_should_hincrbyfloat_run_total_latency_when_item_completes` | 아이템 완료 시 `HINCRBYFLOAT run:{id} total_latency {latency}` 호출 확인 |
+| 28 | `test_should_hincrbyfloat_run_total_score_sum_when_score_recorded` | 점수 기록 시 `HINCRBYFLOAT run:{id} total_score_sum {score}` 호출 확인 |
+| 29 | `test_should_hincrby_run_scored_count_when_score_recorded` | 점수 기록 시 `HINCRBY run:{id} scored_count 1` 호출 확인 |
+| 30 | `test_should_calculate_avg_score_from_sum_and_count_when_queried` | 조회 시 `total_score_sum / scored_count`로 평균 점수 계산 확인 |
+| 31 | `test_should_store_total_duration_sec_when_experiment_completes` | 실험 완료 시 `HSET run:{id} total_duration_sec {seconds}` 호출 확인 |
+
 ---
 
 ## Phase 3: Core API 테스트
@@ -1024,6 +1037,22 @@ pytest -n auto
 |---|------------|------|----------|-------------------|-----------|
 | 1 | `test_should_retry_failed_items_when_called_on_completed_experiment` | `POST /api/v1/experiments/{id}/retry-failed`, `jwt_user` | 200, Redis `status = "running"`, `failed_items`만 재실행 대상, TTL 86400초로 재설정 | mock_redis (`status="completed"`, `failed_items=3`), `jwt_user` | - |
 | 2 | `test_should_return_409_when_retry_on_experiment_with_zero_failures` | `POST /api/v1/experiments/{id}/retry-failed`, `failed_items=0` | 409, `{"detail": "No failed items to retry"}` | mock_redis (`status="completed"`, `failed_items=0`), `jwt_user` | - |
+
+---
+
+### 3.12 공통 에러 케이스 테스트
+
+**파일**: `tests/integration/test_common_errors.py`
+
+> JWT 미들웨어가 모든 요청에 적용되므로 개별 엔드포인트별 401 테스트는 생략한다. 대신 아래 대표 테스트로 미들웨어 공통 적용을 검증한다.
+
+| # | 테스트 이름 | 기대 결과 |
+|---|------------|----------|
+| 1 | `test_should_return_401_for_all_protected_endpoints_when_jwt_missing` | 대표 5개 엔드포인트(prompts, datasets, models, experiments, search)에 JWT 없이 요청 → 모두 401 |
+| 2 | `test_should_return_502_LANGFUSE_ERROR_when_langfuse_unreachable` | 프롬프트 목록 조회 시 Langfuse 연결 불가 → 502 `LANGFUSE_ERROR` |
+| 3 | `test_should_return_502_CLICKHOUSE_ERROR_when_clickhouse_unreachable` | 분석 비교 시 ClickHouse 연결 불가 → 502 `CLICKHOUSE_ERROR` |
+| 4 | `test_should_return_422_when_project_id_missing_on_protected_endpoints` | 대표 3개 엔드포인트에 `project_id` 누락 → 422 |
+| 5 | `test_should_return_413_when_file_too_large_on_preview_endpoint` | preview 엔드포인트에 제한 초과 파일 업로드 → 413 |
 
 ---
 
