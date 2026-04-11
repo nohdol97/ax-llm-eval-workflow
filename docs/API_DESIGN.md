@@ -169,7 +169,14 @@ Request Body:
     "stream": true
 }
 
-**검증 규칙**: prompt.source가 'langfuse'이면 name/version 필수, content 무시. 'inline'이면 content 필수, name/version 무시.
+**검증 규칙**:
+- prompt.source가 'langfuse'이면 name/version 필수, content 무시. 'inline'이면 content 필수, name/version 무시.
+- parameters.temperature: 0.0~2.0 (기본: 1.0)
+- parameters.max_tokens: 1~모델별 상한 (기본: 1024)
+- parameters.top_p: 0.0~1.0 (기본: 1.0)
+- parameters.frequency_penalty: -2.0~2.0 (기본: 0.0)
+- parameters.presence_penalty: -2.0~2.0 (기본: 0.0)
+- images: 최대 10장, 개별 이미지 최대 20MB (base64)
 
 Response (stream=false):
 {
@@ -269,7 +276,13 @@ Request Body:
     "system_prompt": "string (optional)"
 }
 
-**검증 규칙**: prompt_configs, model_configs, evaluators는 각각 최소 1개 이상 필수. dataset_name은 Langfuse에 존재해야 함.
+**검증 규칙**:
+- prompt_configs: 최소 1개 이상 필수
+- model_configs: 최소 1개 이상 필수
+- evaluators: 최소 1개 이상 필수
+- dataset_name: Langfuse에 존재해야 함
+- concurrency: 1~20 (기본: 5)
+- name: 1~100자
 
 Response:
 {
@@ -402,7 +415,7 @@ Query Parameters:
 - project_id: string (required)
 - status: string (optional)
 - page: int (default 1)
-- page_size: int (default 20)
+- page_size: int (default 20, max 100)
 
 Response:
 - experiments: [{ experiment_id, name, status, total_runs, total_cost_usd, created_at }]
