@@ -1,7 +1,7 @@
 # ax-llm-eval-workflow
 
 ## 프로젝트 개요
-Langfuse v3 기반 LLM 프롬프트 실험/평가 워크플로우 플랫폼.
+Langfuse v3 기반 LLM 프롬프트 실험/평가 워크플로우 도구.
 GenAI Labs 컨셉을 구현하여 프롬프트 관리, 배치 실험, Custom Evaluation, Context Engineering을 하나의 워크플로우로 제공한다.
 
 ## 기술 스택
