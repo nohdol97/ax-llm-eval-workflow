@@ -175,7 +175,7 @@ event: token
 data: {"content": " 결과"}
 
 event: done
-data: {"trace_id": "...", "usage": {...}, "latency_ms": 1200, "cost_usd": 0.0023}
+data: {"trace_id": "...", "usage": {...}, "latency_ms": 1200, "cost_usd": 0.0023, "scores": {"exact_match": 1.0}}
 
 event: error
 data: {"code": "LLM_ERROR", "message": "Rate limit exceeded"}

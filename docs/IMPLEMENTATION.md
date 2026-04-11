@@ -719,14 +719,16 @@ Labs는 JWT를 발급하지 않는다. 사내 Auth 서비스에서 발급된 JWT
 | 변수명 | 필수 | 설명 | 예시 | 비고 |
 |--------|------|------|------|------|
 | `PROJECTS_CONFIG` | O | 프로젝트별 Langfuse API Key 설정 (JSON) | `'{"projects":[{"id":"proj_1","name":"서비스A","langfuse_public_key":"pk-lf-...","langfuse_secret_key":"sk-lf-...","langfuse_host":"https://langfuse.internal"}]}'` | Secret Manager 사용 시 대체 가능 |
-| `REDIS_URL` | O | Labs 상태 저장용 Redis 연결 URL | `redis://redis:6379/0` | |
+| `REDIS_URL` | O | Labs 상태 저장용 Redis 연결 URL | `redis://:password@redis:6379/1` | |
 | `LITELLM_BASE_URL` | O | LiteLLM Proxy 내부 URL | `http://litellm:4000` | |
 | `LITELLM_MASTER_KEY` | O | LiteLLM Proxy Master Key | `sk-litellm-master-...` | 최소 32자 |
 | `CLICKHOUSE_HOST` | O | ClickHouse 서버 호스트 | `clickhouse` | |
 | `CLICKHOUSE_PORT` | X | ClickHouse HTTP 포트 (기본: 8123) | `8123` | |
-| `CLICKHOUSE_DATABASE` | X | ClickHouse 데이터베이스 (기본: langfuse) | `langfuse` | |
+| `CLICKHOUSE_DB` | X | ClickHouse 데이터베이스 (기본: langfuse) | `langfuse` | |
 | `CLICKHOUSE_USER` | O | ClickHouse 읽기 전용 계정 | `labs_readonly` | |
 | `CLICKHOUSE_PASSWORD` | O | ClickHouse 비밀번호 | `readonly_password` | |
+| `CLICKHOUSE_READONLY_USER` | O | ClickHouse 읽기 전용 계정 (Labs 분석용) | `labs_readonly` | |
+| `CLICKHOUSE_READONLY_PASSWORD` | O | ClickHouse 읽기 전용 비밀번호 | `readonly_password` | |
 | `AUTH_JWKS_URL` | O | JWKS 엔드포인트 URL | `https://auth.company.com/.well-known/jwks.json` | |
 | `AUTH_JWT_AUDIENCE` | O | JWT aud 클레임 검증 값 | `ax-llm-eval-workflow` | |
 | `AUTH_JWT_ISSUER` | O | JWT iss 클레임 검증 값 | `https://auth.company.com` | |
@@ -777,10 +779,10 @@ Labs는 JWT를 발급하지 않는다. 사내 Auth 서비스에서 발급된 JWT
 | `POSTGRES_USER` | O | PostgreSQL 사용자 (Langfuse용) | `langfuse` | |
 | `POSTGRES_PASSWORD` | O | PostgreSQL 비밀번호 | `langfuse_password` | |
 | `POSTGRES_DB` | X | PostgreSQL 데이터베이스 (기본: langfuse) | `langfuse` | |
-| `CLICKHOUSE_ADMIN_PASSWORD` | O | ClickHouse 관리자 비밀번호 | `clickhouse_admin_pw` | |
-| `LANGFUSE_SECRET_KEY_SALT` | O | Langfuse 시크릿 키 솔트 | `random_salt_string` | |
-| `LANGFUSE_NEXT_AUTH_SECRET` | O | Langfuse NextAuth 시크릿 | `random_auth_secret` | |
-| `LANGFUSE_NEXTAUTH_URL` | O | Langfuse Web UI URL | `http://localhost:3001` | |
+| `CLICKHOUSE_PASSWORD` | O | ClickHouse 관리자 비밀번호 | `clickhouse_admin_pw` | |
+| `LANGFUSE_SALT` | O | Langfuse 시크릿 키 솔트 | `random_salt_string` | |
+| `LANGFUSE_NEXTAUTH_SECRET` | O | Langfuse NextAuth 시크릿 | `random_auth_secret` | |
+| `NEXTAUTH_URL` | O | Langfuse Web UI URL (브라우저 접근용) | `http://localhost:${LANGFUSE_PORT:-3001}` | docker-compose.yml에 하드코딩됨 |
 | `LANGFUSE_TELEMETRY_ENABLED` | X | Langfuse 텔레메트리 (기본: true) | `false` | 사내 배포 시 false 권장 |
 
 ### 5.5 환경변수 로딩 우선순위
@@ -796,7 +798,7 @@ Labs는 JWT를 발급하지 않는다. 사내 Auth 서비스에서 발급된 JWT
 
 | 항목 | 개발 (.env.development) | 운영 (.env.production) |
 |------|------------------------|----------------------|
-| `REDIS_URL` | `redis://localhost:6379/0` | Secret Manager |
+| `REDIS_URL` | `redis://:password@redis:6379/1` | Secret Manager |
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:3000` | `https://labs.company.com` |
 | `LOG_LEVEL` | `DEBUG` | `INFO` |
 | `NEXT_PUBLIC_API_BASE_URL` | `http://localhost:8000/api/v1` | `https://api.labs.company.com/api/v1` |

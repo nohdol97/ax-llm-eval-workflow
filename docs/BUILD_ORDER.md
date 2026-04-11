@@ -48,17 +48,23 @@ LANGFUSE_HOST=http://langfuse:3000
 
 # LiteLLM
 LITELLM_MASTER_KEY=
-LITELLM_HOST=http://litellm:4000
+LITELLM_BASE_URL=http://litellm:4000
 
-# ClickHouse
+# ClickHouse (admin - Langfuse용)
 CLICKHOUSE_HOST=clickhouse
 CLICKHOUSE_PORT=8123
 CLICKHOUSE_DB=langfuse
-CLICKHOUSE_USER=labs_readonly
+CLICKHOUSE_USER=default
 CLICKHOUSE_PASSWORD=
 
+# ClickHouse (읽기 전용 - Labs Backend 분석용)
+CLICKHOUSE_READONLY_USER=labs_readonly
+CLICKHOUSE_READONLY_PASSWORD=
+
 # Redis
-REDIS_URL=redis://redis:6379/0
+REDIS_PASSWORD=
+LABS_REDIS_DB=1
+REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/${LABS_REDIS_DB:-1}
 
 # JWT
 AUTH_JWKS_URL=

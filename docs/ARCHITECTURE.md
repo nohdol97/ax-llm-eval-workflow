@@ -150,6 +150,7 @@
       → LiteLLM Proxy → LLM Provider
       ← 스트리밍 응답
   → Backend: Langfuse에 trace/generation 기록
+  → Backend: Evaluation Engine (evaluators 지정 시)
   → Frontend: 실시간 응답 렌더링
 ```
 
