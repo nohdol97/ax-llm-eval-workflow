@@ -254,8 +254,8 @@ ORDER BY score_per_dollar DESC
 #### 스코어 분포 히스토그램
 ```sql
 SELECT
-    floor(s.value * {bins:UInt8}) / {bins:UInt8} AS bin_start,
-    floor(s.value * {bins:UInt8}) / {bins:UInt8} + 1.0 / {bins:UInt8} AS bin_end,
+    least(floor(s.value * {bins:UInt8}), {bins:UInt8} - 1) / {bins:UInt8} AS bin_start,
+    least(floor(s.value * {bins:UInt8}), {bins:UInt8} - 1) / {bins:UInt8} + 1.0 / {bins:UInt8} AS bin_end,
     count(*) AS count
 FROM traces t
 JOIN scores s ON t.id = s.trace_id
@@ -265,6 +265,8 @@ WHERE t.project_id = {project_id:String}
 GROUP BY bin_start, bin_end
 ORDER BY bin_start ASC
 ```
+
+> **NOTE**: `least(..., bins-1)` 클램핑으로 score=1.0이 마지막 bin에 포함되도록 한다. bins=1이면 전체가 하나의 bin [0.0, 1.0]이 된다.
 
 ### 3.3 ClickHouse 연결 설정
 

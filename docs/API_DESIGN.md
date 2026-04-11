@@ -122,6 +122,13 @@ Request Body:
     "labels": ["production"]
 }
 
+Response:
+{
+    "name": "...",
+    "version": 3,
+    "labels": ["production"]
+}
+
 권한: admin
 ```
 
@@ -150,7 +157,9 @@ Request Body:
     "parameters": {
         "temperature": 0.1,
         "max_tokens": 1024,
-        "top_p": 1.0
+        "top_p": 1.0,
+        "frequency_penalty": 0.0,
+        "presence_penalty": 0.0
     },
     "system_prompt": "string (optional)",
     "images": ["base64_encoded_string"],
@@ -189,7 +198,7 @@ event: token
 data: {"content": " 결과"}
 
 event: done
-data: {"trace_id": "...", "usage": {...}, "latency_ms": 1200, "cost_usd": 0.0023, "scores": {"exact_match": 1.0}}
+data: {"trace_id": "...", "output": "전체 응답 텍스트", "model": "gpt-4o", "usage": {...}, "latency_ms": 1200, "cost_usd": 0.0023, "scores": {"exact_match": 1.0}}
 
 event: error
 data: {"code": "LLM_ERROR", "message": "Rate limit exceeded"}
@@ -252,7 +261,8 @@ Request Body:
         {
             "type": "custom_code",
             "name": "label_f1",
-            "code": "def evaluate(output, expected, metadata):\n    ..."
+            "code": "def evaluate(output, expected, metadata):\n    ...",
+            "weight": 1.0
         }
     ],
     "concurrency": 5,
@@ -342,6 +352,15 @@ POST /api/v1/experiments/{experiment_id}/pause
 POST /api/v1/experiments/{experiment_id}/resume
 POST /api/v1/experiments/{experiment_id}/cancel
 POST /api/v1/experiments/{experiment_id}/retry-failed
+
+공통 Response:
+{
+    "experiment_id": "uuid",
+    "status": "변경 후 상태",
+    "updated_at": "ISO 8601"
+}
+
+에러: 409 STATE_CONFLICT (허용되지 않는 상태 전이)
 ```
 
 **상태 전이 규칙**:
@@ -369,6 +388,10 @@ POST /api/v1/experiments/{experiment_id}/retry-failed
 - `retry-failed`: completed 또는 failed → running (실패 아이템만 재실행)
 - 이미 cancelled인 실험은 재시작 불가 (409 Conflict 반환)
 
+**완료/실패 판단 기준**:
+- `completed`: 모든 아이템 처리 완료 (실패 아이템이 일부 있어도 전체 처리가 끝나면 completed)
+- `failed`: 실험 레벨 오류 (예: Redis 연결 실패, Langfuse 접속 불가 등 인프라 장애)
+
 **실험 상태 저장**: Redis에 저장 (TTL 24시간), 완료 시 Langfuse trace metadata로 영속화
 
 ### 4.5 실험 목록 조회
@@ -382,9 +405,10 @@ Query Parameters:
 - page_size: int (default 20)
 
 Response:
-- experiments: [{ experiment_id, name, status, total_runs, created_at }]
+- experiments: [{ experiment_id, name, status, total_runs, total_cost_usd, created_at }]
 - total: int
 - page: int
+- page_size: int
 ```
 
 ---
@@ -719,8 +743,11 @@ Response:
 ```
 DELETE /api/v1/experiments/{experiment_id}
 
+Response:
+{ "status": "success", "data": { "experiment_id": "uuid", "deleted": true } }
+
+에러: 409 STATE_CONFLICT (running/paused 상태에서는 삭제 불가, 먼저 cancel 필요)
 권한: admin
-조건: running 또는 paused 상태의 실험은 삭제 불가 (먼저 cancel 필요)
 ```
 
 ### 11.2 데이터셋 삭제
@@ -756,6 +783,7 @@ Query Parameters:
 | EVALUATOR_TIMEOUT | 504 | 커스텀 평가 함수 실행 시간 초과 (5초) |
 | SANDBOX_VIOLATION | 403 | 커스텀 평가 함수 보안 제약 위반 |
 | EVALUATOR_IMPORT | 400 | 커스텀 평가 함수에서 비허용 모듈 import 시도 |
+| EVALUATOR_OOM | 500 | 커스텀 평가 함수 메모리 제한 초과 (128MB) |
 | INVALID_EVALUATOR | 400 | 커스텀 평가 함수 문법 오류 |
 | FILE_PARSE_ERROR | 400 | 업로드 파일 파싱 실패 |
 | FILE_TOO_LARGE | 413 | 업로드 파일 크기 초과 (50MB) |

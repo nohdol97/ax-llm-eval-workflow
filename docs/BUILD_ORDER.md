@@ -162,24 +162,25 @@ Custom Code Evaluator 실행을 위한 샌드박스 이미지.
 docker compose -f docker/docker-compose.yml up -d postgres clickhouse redis langfuse litellm
 
 # 2. 서비스 상태 확인
-docker compose ps  # 모든 서비스 healthy/running
+docker compose -f docker/docker-compose.yml ps  # 모든 서비스 healthy/running
 
 # 3. ClickHouse 읽기 전용 계정 생성 (초기 1회)
-docker compose exec clickhouse bash /scripts/setup-clickhouse-readonly.sh
+# docker-compose.yml에서 docker/scripts/를 컨테이너의 /scripts/로 볼륨 마운트 필요
+docker compose -f docker/docker-compose.yml exec clickhouse bash /scripts/setup-clickhouse-readonly.sh
 
-# 4. Langfuse 접속
+# 4. Langfuse 접속 (개발 환경: ports 3001:3000 노출)
 curl http://localhost:3001/api/public/health
 
-# 5. LiteLLM 헬스체크
+# 5. LiteLLM 헬스체크 (개발 환경: ports 4000:4000 노출)
 curl http://localhost:4000/health
 
 # 6. ClickHouse 읽기 전용 계정 확인
-docker compose exec clickhouse clickhouse-client \
+docker compose -f docker/docker-compose.yml exec clickhouse clickhouse-client \
   --user labs_readonly --password <password> \
   --query "SELECT 1"
 
 # 7. Redis 연결 확인
-docker compose exec redis redis-cli ping  # PONG
+docker compose -f docker/docker-compose.yml exec redis redis-cli ping  # PONG
 
 # 8. sandbox 이미지 빌드
 docker build -t ax-eval-sandbox:1.0.0 docker/eval-sandbox/
@@ -376,7 +377,7 @@ curl -X POST -H "Authorization: Bearer <jwt>" \
 ```
 
 ### 테스트 명세 참조
-- TEST_SPEC.md Phase 3 (Core API 116개)
+- TEST_SPEC.md Phase 3 (Core API 약 126개)
 
 ---
 
@@ -499,7 +500,7 @@ curl -X POST "http://localhost:8000/api/v1/experiments/<id>/pause"
 ```
 
 ### 테스트 명세 참조
-- TEST_SPEC_PART2.md Phase 4 (실험 엔진 48개)
+- TEST_SPEC_PART2.md Phase 4 (실험 엔진 약 53개)
 
 ---
 
@@ -617,7 +618,7 @@ curl -X POST -H "Authorization: Bearer <jwt>" \
 ```
 
 ### 테스트 명세 참조
-- TEST_SPEC_PART2.md Phase 5 (평가 시스템 40개)
+- TEST_SPEC_PART2.md Phase 5 (평가 시스템 약 53개)
 
 ---
 

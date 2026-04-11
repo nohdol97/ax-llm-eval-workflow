@@ -802,7 +802,7 @@ Phase 4(실험 실행 엔진), Phase 5(평가 시스템), Phase 6(분석), Phase
 |------|------|
 | **테스트 이름** | `test_should_return_error_when_importing_blocked_modules` |
 | **입력/설정** | code: `"import os"`, `"import sys"`, `"import subprocess"`, `"import socket"`, `"import http"`, `"import urllib"` 각각 |
-| **기대 결과** | 모두 `{"status": "error", "error_code": "EVALUATOR_ERROR", "error_message": "Import of 'os' is not allowed in sandbox"}` |
+| **기대 결과** | 모두 `{"status": "error", "error_code": "EVALUATOR_IMPORT", "error_message": "Module 'os' is not allowed. Allowed: ..."}` |
 | **fixture/mock** | runner.py 직접 실행 |
 | **엣지케이스** | `__import__('os')` 직접 호출 시도 → 차단 (\_\_import\_\_ 가 _safe_import로 교체됨). `importlib` import 시도 → 차단 |
 

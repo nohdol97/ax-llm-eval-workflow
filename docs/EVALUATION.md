@@ -59,15 +59,18 @@
 - 임베딩 모델: text-embedding-3-small (기본), text-embedding-3-large 선택 가능
 - LiteLLM 통해 임베딩 요청
 - 반환: 0.0 ~ 1.0
+- **주의**: 다른 Built-in과 달리 외부 API 호출이 필요하여 지연(~100-500ms)과 추가 비용($0.02/1M tokens)이 발생한다. 배치 실험에서 사용 시 아이템당 2회 임베딩 호출(output + expected)이 필요하므로 비용 영향을 사전에 확인해야 한다.
 
 #### bleu
 - BLEU 스코어 (기계 번역 평가 지표)
 - n-gram 기반 정밀도 (1-gram ~ 4-gram)
+- Backend 자체 구현 (nltk 의존성 없음, 표준 라이브러리로 구현)
 - 반환: 0.0 ~ 1.0
 
 #### rouge
 - ROUGE-L 스코어 (요약 평가 지표)
 - 최장 공통 부분 수열 기반
+- Backend 자체 구현 (rouge-score 의존성 없음, LCS 알고리즘 직접 구현)
 - 반환: 0.0 ~ 1.0
 
 ### 2.4 성능/비용
@@ -306,7 +309,7 @@ def evaluate(output, expected, metadata):
     ▼
 EvaluationEngine.evaluate(output, expected, metadata, evaluators)
     │
-    ├── [병렬] Built-in evaluators (즉시 실행, <10ms)
+    ├── [병렬] Built-in evaluators (즉시 실행, <10ms; cosine_similarity 제외 ~100-500ms)
     │       ├── exact_match → 1.0
     │       ├── json_validity → 1.0
     │       └── latency_check → 0.0
