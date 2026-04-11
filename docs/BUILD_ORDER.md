@@ -5,6 +5,54 @@
 
 ---
 
+## Phase 0: 테스트 인프라 구축
+
+### 선행 조건
+- 없음 (최우선 작업)
+
+### 작업 목록
+
+#### 0-1. Backend 테스트 프로젝트 구조
+- `backend/tests/` 디렉토리 생성
+- `backend/tests/conftest.py` — 공통 fixture 정의
+- `backend/tests/unit/` — 단위 테스트
+- `backend/tests/integration/` — 통합 테스트
+- `backend/tests/infra/` — 인프라 연결 테스트
+- pytest.ini 또는 pyproject.toml 테스트 설정
+- pytest-asyncio, pytest-cov, fakeredis, httpx 의존성
+
+#### 0-2. 공통 Mock/Fixture 구현
+- `backend/tests/fixtures/mock_langfuse.py` — MockLangfuseClient (TEST_SPEC.md 0.3.1 참조)
+- `backend/tests/fixtures/mock_redis.py` — MockRedisClient (TEST_SPEC.md 0.3.2 참조)
+- `backend/tests/fixtures/mock_litellm.py` — MockLiteLLMProxy (TEST_SPEC.md 0.3.3 참조)
+- `backend/tests/fixtures/mock_clickhouse.py` — MockClickHouseClient
+- `backend/tests/fixtures/jwt_helper.py` — create_test_jwt() (TEST_SPEC.md 0.3.4 참조)
+
+#### 0-3. Frontend 테스트 설정
+- vitest.config.ts 설정
+- MSW (Mock Service Worker) 핸들러 기본 구조
+- `frontend/tests/` 디렉토리 구조
+
+#### 0-4. CI 파이프라인
+- `.github/workflows/test.yml` — backend-unit, backend-integration, frontend-unit, lint 분리 (TEST_SPEC.md 0.4 참조)
+
+### 산출물
+- `backend/tests/` 구조 + conftest.py + mock 4종 + jwt_helper
+- `frontend/tests/` 구조 + vitest.config.ts
+- `.github/workflows/test.yml`
+- `pytest --collect-only`로 fixture 로딩 확인
+
+### 검증 방법
+```bash
+cd backend && pytest --collect-only  # fixture 수집 성공, 0 errors
+cd frontend && npx vitest --run --reporter=verbose 2>&1 | head  # vitest 실행 가능
+```
+
+### 테스트 명세 참조
+- TEST_SPEC.md Phase 0 전체
+
+---
+
 ## Phase 1: 인프라 셋업
 
 ### 선행 조건
@@ -134,6 +182,9 @@ docker compose exec redis redis-cli ping  # PONG
 docker build -t ax-eval-sandbox:1.0.0 docker/eval-sandbox/
 ```
 
+### 테스트 명세 참조
+- TEST_SPEC.md Phase 1 (인프라 테스트 23개)
+
 ---
 
 ## Phase 2: Backend 기초
@@ -226,6 +277,9 @@ curl -H "Authorization: Bearer <valid_jwt>" http://localhost:8000/api/v1/health
 # 응답: 200 OK
 ```
 
+### 테스트 명세 참조
+- TEST_SPEC.md Phase 2 (Backend 기초 42개)
+
 ---
 
 ## Phase 3: Core APIs
@@ -312,6 +366,9 @@ curl -X POST -H "Authorization: Bearer <jwt>" \
   -d '{"project_id":"proj_123"}' \
   "http://localhost:8000/api/v1/projects/switch"
 ```
+
+### 테스트 명세 참조
+- TEST_SPEC.md Phase 3 (Core API 99개)
 
 ---
 
@@ -426,6 +483,9 @@ curl -X POST "http://localhost:8000/api/v1/experiments/<id>/pause"
 # localhost:3001 → 해당 프로젝트 → Traces 탭에서 기록 확인
 ```
 
+### 테스트 명세 참조
+- TEST_SPEC_PART2.md Phase 4 (실험 엔진 45개)
+
 ---
 
 ## Phase 5: 평가 시스템
@@ -539,6 +599,9 @@ curl -X POST -H "Authorization: Bearer <jwt>" \
 # localhost:3001 → Traces → 해당 trace → Scores 탭
 ```
 
+### 테스트 명세 참조
+- TEST_SPEC_PART2.md Phase 5 (평가 시스템 52개)
+
 ---
 
 ## Phase 6: 분석
@@ -609,6 +672,9 @@ curl -X POST -H "Authorization: Bearer <jwt>" \
 curl "http://localhost:8000/api/v1/analysis/scores/distribution?\
 project_id=...&run_name=run_a&score_name=exact_match&bins=10"
 ```
+
+### 테스트 명세 참조
+- TEST_SPEC_PART2.md Phase 6 (분석 7개)
 
 ---
 
@@ -808,23 +874,27 @@ open http://localhost:3000
 # 결과 비교 → Run 선택 → KPI/차트/테이블 확인
 ```
 
+### 테스트 명세 참조
+- TEST_SPEC_PART2.md Phase 7 (Frontend 22개) + 엣지케이스 52개
+
 ---
 
 ## Phase 간 의존성 요약
 
 ```
-Phase 1 (인프라)
-  └─▶ Phase 2 (Backend 기초)
-        └─▶ Phase 3 (Core APIs)
-              └─▶ Phase 4 (실험 실행 엔진)
-                    └─▶ Phase 5 (평가 시스템)
-                          └─▶ Phase 6 (분석)
-                                └─▶ Phase 7 (Frontend)
+Phase 0 (테스트 인프라)
+  └─▶ Phase 1 (인프라)
+        └─▶ Phase 2 (Backend 기초)
+              └─▶ Phase 3 (Core APIs)
+                    └─▶ Phase 4 (실험 실행 엔진)
+                          └─▶ Phase 5 (평가 시스템)
+                                └─▶ Phase 6 (분석)
+                                      └─▶ Phase 7 (Frontend)
 
 Phase 1-5 (sandbox 이미지) ──▶ Phase 5-3 (Custom Code Evaluator)
 ```
 
-- Phase 1~6은 순차적 의존성
+- Phase 0~6은 순차적 의존성
 - Phase 7 (Frontend)은 Phase 6 완료 후 시작하는 것이 이상적이나, API 스펙 확정 후 병렬 개발 가능
 - Frontend 페이지 간에도 순서가 있음: 설정 → 데이터셋 → 프롬프트 → 단일 테스트 → 배치 → 평가 → 비교
 
@@ -834,6 +904,7 @@ Phase 1-5 (sandbox 이미지) ──▶ Phase 5-3 (Custom Code Evaluator)
 
 | Phase | 핵심 마일스톤 | 검증 기준 |
 |-------|-------------|-----------|
+| 0 | 테스트 인프라 구축 (backend/tests, frontend/tests, CI) | `pytest --collect-only` 성공, vitest 실행 가능, CI 워크플로우 정의 완료 |
 | 1 | `docker compose -f docker/docker-compose.yml up -d postgres clickhouse redis langfuse litellm`으로 인프라 가동 | 모든 서비스 healthy, Langfuse/LiteLLM 접속 가능 |
 | 2 | FastAPI 서버 기동, JWT 인증 작동 | `/health` 200, 인증 없는 요청 401 |
 | 3 | Langfuse 프록시 API 전체 동작 | curl로 프롬프트/데이터셋/모델 CRUD 가능 |

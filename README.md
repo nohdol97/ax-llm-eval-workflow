@@ -90,7 +90,9 @@ ax-llm-eval-workflow/
 | [EVALUATION.md](docs/EVALUATION.md) | 평가 시스템 설계, Custom Evaluator, 스코어링 |
 | [UI_UX_DESIGN.md](docs/UI_UX_DESIGN.md) | UI/UX 설계, 디자인 토큰, 페이지별 레이아웃, 인터랙션 |
 | [IMPLEMENTATION.md](docs/IMPLEMENTATION.md) | Redis 스키마, 샌드박스 프로토콜, Auth, 프로젝트 관리, 환경변수 |
-| [BUILD_ORDER.md](docs/BUILD_ORDER.md) | 7단계 구현 순서, Phase별 의존성/산출물/검증 |
+| [BUILD_ORDER.md](docs/BUILD_ORDER.md) | 8단계 구현 순서 (Phase 0~7), Phase별 의존성/산출물/검증 |
+| [TEST_SPEC.md](docs/TEST_SPEC.md) | 테스트 명세 Phase 0~3 (테스트 인프라, 인프라, Backend 기초, Core API) |
+| [TEST_SPEC_PART2.md](docs/TEST_SPEC_PART2.md) | 테스트 명세 Phase 4~7 (실험 엔진, 평가, 분석, Frontend) + 엣지케이스 |
 
 ## 라이선스
 
