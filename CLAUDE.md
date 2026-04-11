@@ -6,9 +6,12 @@ GenAI Labs 컨셉을 구현하여 프롬프트 관리, 배치 실험, Custom Eva
 
 ## 기술 스택
 - **Backend**: Python 3.12+, FastAPI
-- **Frontend**: Next.js 15 (App Router), TypeScript, Tailwind CSS
+- **Frontend**: Next.js 15 (App Router), TypeScript, Tailwind CSS v4, shadcn/ui
 - **데이터 레이어**: Langfuse v3 (ClickHouse + PostgreSQL + Redis)
-- **LLM Gateway**: LiteLLM Proxy (멀티 프로바이더 통합)
+- **상태 저장**: Redis (실험 상태/진행률, TTL 기반)
+- **LLM Gateway**: LiteLLM Proxy (멀티 프로바이더 통합, Langfuse callback 비활성화)
+- **인증**: 사내 Auth 서비스에서 JWT 수신 (Labs는 검증만)
+- **Evaluator 샌드박스**: Docker 컨테이너 격리
 - **테스트**: pytest (backend), vitest (frontend)
 - **컨테이너**: Docker, Docker Compose
 - **CI/CD**: GitHub Actions
@@ -46,9 +49,19 @@ ax-llm-eval-workflow/
 
 ## Langfuse 연동 규칙
 - Langfuse v3 API를 직접 호출 (SDK 우선, REST API 보조)
-- Trace/Generation 데이터는 Langfuse에만 저장 (자체 DB 중복 금지)
-- ClickHouse 직접 쿼리는 분석/대시보드 용도로만 사용
+- Trace/Generation 데이터는 Langfuse에만 저장 (자체 RDBMS 없음)
+- 실험 상태/진행률은 Redis에 저장 (TTL 24시간, 완료 시 Langfuse로 영속화)
+- ClickHouse 직접 쿼리는 분석/대시보드 용도로만 사용, 파라미터화 필수
+- ClickHouse 접속은 읽기 전용 계정 필수
 - 프롬프트 원본은 Langfuse Prompt Management에서 관리
+- LiteLLM의 Langfuse callback은 비활성화, Labs Backend가 기록 전담
+- 비용/토큰 추적은 LiteLLM 응답의 usage + completion_cost()로 직접 계산
+
+## 보안 규칙
+- Custom Evaluator 코드는 Docker 컨테이너에서 격리 실행 (admin 권한만)
+- ClickHouse 쿼리에 문자열 보간(f-string) 금지, parameterized query 필수
+- Backend 로그에 프롬프트/모델 출력 원본 기록 금지
+- LLM Provider API 키는 LiteLLM Proxy에서만 관리, Backend 코드에서 접근 금지
 
 ## 테스트
 - 테스트 코드 작성은 Codex에 위임 (/codex:rescue)

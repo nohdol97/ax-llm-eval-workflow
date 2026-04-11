@@ -142,23 +142,20 @@ langfuse.score(
 
 ### 2.5 LiteLLM + Langfuse 자동 연동
 
-LiteLLM Proxy에 Langfuse callback을 설정하면 LLM 호출이 자동으로 Langfuse에 기록된다.
+**LiteLLM의 Langfuse callback은 비활성화한다.**
+
+Labs Backend가 trace/generation 기록을 전담하므로 LiteLLM의 자동 callback을 사용하면 중복 기록이 발생한다.
 
 ```
 LiteLLM Proxy 설정:
   litellm_settings:
-    success_callback: ["langfuse"]
-  environment_variables:
-    LANGFUSE_PUBLIC_KEY: "..."
-    LANGFUSE_SECRET_KEY: "..."
-    LANGFUSE_HOST: "..."
+    success_callback: []    # Langfuse callback 비활성화
 ```
 
-**주의**: Labs Backend에서 직접 trace를 생성하므로, LiteLLM의 자동 callback과 중복 기록되지 않도록 제어 필요.
-
-해결 방법:
-- LiteLLM 호출 시 기존 trace_id를 전달하여 같은 trace에 연결
-- 또는 LiteLLM의 Langfuse callback을 비활성화하고 Labs에서만 기록
+**비용/토큰 추적 방법**:
+- LiteLLM 응답의 `usage` 필드에서 input_tokens, output_tokens 추출
+- `litellm.completion_cost(response)` 함수로 비용 계산
+- Labs Backend가 이 값을 Langfuse generation의 usage 필드에 기록
 
 ---
 
@@ -186,8 +183,8 @@ SELECT
 FROM traces t
 JOIN observations o ON t.id = o.trace_id
 WHERE t.project_id = '{project_id}'
-  AND t.tags @> ARRAY['batch-experiment']
-  AND t.metadata['experiment_name'] = '{experiment_name}'
+  AND has(t.tags, 'batch-experiment')
+  AND JSONExtractString(t.metadata, 'experiment_name') = {experiment_name:String}
 GROUP BY run_name, model, prompt_version
 ORDER BY avg_latency_ms ASC
 ```
@@ -259,7 +256,7 @@ ORDER BY score_per_dollar DESC
 - host: ClickHouse 서버 (Langfuse와 동일 인스턴스)
 - port: 8123 (HTTP) 또는 9000 (Native)
 - database: langfuse (Langfuse가 사용하는 DB)
-- user: 읽기 전용 계정 권장
+- user: 읽기 전용 계정 필수 (GRANT SELECT ON langfuse.* TO labs_readonly)
 - 드라이버: clickhouse-connect (Python)
 ```
 
@@ -267,7 +264,8 @@ ORDER BY score_per_dollar DESC
 
 - ClickHouse 스키마는 Langfuse 버전에 따라 변경될 수 있음 → 마이그레이션 대응 필요
 - 읽기 전용 접근만 수행, 절대 데이터를 직접 INSERT/UPDATE/DELETE 하지 않음
-- 대량 쿼리 시 LIMIT 필수, 무제한 스캔 방지
+- 대량 쿼리 시 LIMIT 필수, 쿼리 래퍼에서 LIMIT 없는 쿼리 거부 (기본 LIMIT 10,000 자동 추가)
+- 파라미터화된 쿼리(parameterized query) 필수 — 문자열 보간(f-string, .format()) 금지
 - Langfuse API로 가능한 조회는 API 사용 우선, ClickHouse는 복잡한 집계에만 사용
 
 ---

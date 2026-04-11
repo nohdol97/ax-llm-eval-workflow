@@ -109,8 +109,13 @@
 **LiteLLM을 사용하는 이유**:
 - 단일 API 인터페이스로 모든 프로바이더 호출
 - 프로바이더별 API 키를 중앙 관리
-- 자동 fallback, 속도 제한, 비용 추적
-- Langfuse와 네이티브 통합 (callback으로 자동 trace 기록)
+- 자동 fallback, 속도 제한
+- `completion_cost()` 함수로 비용 계산 지원
+
+**Langfuse callback 비활성화**:
+- LiteLLM의 Langfuse success_callback을 사용하지 않음
+- trace/generation 기록은 Labs Backend에서 전담하여 중복 기록 방지
+- 비용/토큰 추적은 LiteLLM 응답의 `usage` 필드 + `completion_cost()`로 Labs에서 직접 계산
 
 ### 2.4 Data Layer (Langfuse v3)
 
@@ -122,11 +127,16 @@
 | ClickHouse | 시계열 분석 데이터 | Trace, Generation, Score, 비용, 지연 시간 |
 | Redis | 비동기 큐잉 | 이벤트 인제스트, 워커 큐 |
 
-**자체 DB를 두지 않는 이유**:
-- Langfuse가 이미 프롬프트/데이터셋/trace/score 저장 기능 제공
-- 데이터 중복 저장은 동기화 문제와 불일치를 유발
-- ClickHouse 직접 쿼리로 커스텀 분석이 충분히 가능
-- Labs는 "실행/UI 레이어"에 집중하고 데이터는 Langfuse에 위임
+**데이터 저장 원칙**:
+- 프롬프트/데이터셋/trace/score → Langfuse (source of truth)
+- 실험 상태/진행률/세션 → Redis (TTL 기반, 실시간 상태)
+- 자체 RDBMS는 두지 않음 — Langfuse 데이터 중복 방지
+
+**Labs용 Redis 활용**:
+- Langfuse v3 인프라의 Redis를 공유하거나, Labs 전용 Redis 인스턴스 사용
+- 실험 상태 (running/paused/cancelled + 진행률): TTL 24시간
+- 완료된 실험의 최종 상태는 Langfuse trace metadata로 영속화
+- 변수 프리셋, 사용자 설정: Frontend localStorage로 관리 (서버 저장 불필요)
 
 ## 3. 데이터 흐름
 
@@ -235,17 +245,58 @@ services:
 ## 5. 보안
 
 ### 5.1 인증/인가
-- Backend API: JWT 기반 인증
+- **사내 Auth 서비스 연동**: Labs는 JWT를 발급하지 않음. 별도 Auth 프로젝트에서 발급된 JWT를 수신하여 검증만 수행
+- **JWT 검증**: JWKS 엔드포인트에서 공개키를 가져와 서명 검증
+- **RBAC**: JWT payload의 role/groups 기반으로 권한 제어
+  - `admin`: Custom Code Evaluator 실행 권한, 설정 변경
+  - `user`: 실험 생성/실행, 데이터셋 업로드
+  - `viewer`: 읽기 전용 (결과 조회, 비교 분석)
 - Langfuse: 프로젝트별 API Key (public/secret key pair)
-- LiteLLM Proxy: Master Key로 접근 제어
-- LLM Provider 키: LiteLLM Proxy에서만 보유, Backend는 키를 직접 관리하지 않음
+- LiteLLM Proxy: Master Key로 접근 제어 (최소 32자, Secret Manager에서 관리, 90일 로테이션)
+- LLM Provider 키: LiteLLM Proxy에서만 보유, Backend 코드에서 직접 접근 금지
 
 ### 5.2 시크릿 관리
 - 환경변수로 주입 (`.env` 파일은 gitignore)
 - 운영 환경: Cloud Secret Manager (GCP) 또는 AWS Secrets Manager
 - LLM API 키는 LiteLLM Proxy 설정에서만 관리
+- Langfuse 프로젝트별 API Key는 Secret Manager에 저장, Backend에서 필요 시 조회
+- CI/CD에 시크릿 스캔 (gitleaks) 적용
 
 ### 5.3 네트워크 보안
-- Langfuse, ClickHouse, Redis는 내부 네트워크에서만 접근
-- Backend API는 CORS 설정으로 Frontend 도메인만 허용
-- LiteLLM Proxy는 Backend에서만 접근 가능 (외부 노출 금지)
+
+**Docker Compose 네트워크 분리**:
+```
+frontend_net (외부 노출):
+  - frontend (port 3000)
+  - backend (port 8000)
+
+backend_net (internal: true, 외부 차단):
+  - backend
+  - litellm
+  - langfuse
+  - postgres
+  - clickhouse
+  - redis
+```
+- 내부 서비스는 `expose:`만 사용, `ports:` 사용 금지
+- LiteLLM Proxy: backend_net에서만 접근 가능
+- ClickHouse: backend_net에서만 접근, 읽기 전용 계정 필수
+
+**CORS 정책**:
+- 운영: Frontend 도메인만 허용 (환경변수로 관리)
+- 개발: `localhost:3000`만 허용 (와일드카드 `*` 금지)
+- `credentials: true`, `allow_methods: ["GET", "POST", "DELETE"]`
+
+### 5.4 Custom Evaluator 보안
+
+**Docker 컨테이너 격리**:
+- 평가 코드는 별도 Docker 컨테이너에서 실행
+- 실험 시작 시 컨테이너 생성, 전체 아이템 실행 후 삭제 (아이템마다 생성하지 않음)
+- 제약: 네트워크 없음, 볼륨 없음, non-root, 5초 타임아웃, 128MB 메모리
+- Custom Evaluator 실행 권한은 `admin` 역할로 제한
+
+### 5.5 데이터 프라이버시
+- 프롬프트/모델 출력에 PII 포함 가능성을 사용자에게 경고 표시
+- Backend 로그에 프롬프트/출력 원본 기록 금지 (trace_id만 기록)
+- LLM-as-Judge 사용 시 데이터가 외부 LLM Provider로 전송된다는 경고를 UI에 표시
+- ClickHouse 쿼리는 파라미터화된 쿼리(parameterized query) 필수

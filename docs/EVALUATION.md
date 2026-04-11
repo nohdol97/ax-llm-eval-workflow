@@ -109,7 +109,8 @@ Judge LLM 호출 (GPT-4o 권장)
 응답 파싱 → score (0-10), reasoning (평가 근거)
     │
     ▼
-score를 0.0-1.0으로 정규화하여 Langfuse에 기록
+score를 0.0-1.0으로 정규화 (score / 10) 하여 Langfuse에 기록
+(모든 평가 함수의 스코어는 0.0~1.0으로 통일)
 ```
 
 ### 3.2 기본 제공 Judge 프롬프트

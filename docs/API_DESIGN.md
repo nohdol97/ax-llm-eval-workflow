@@ -66,6 +66,44 @@ Response:
 - versions: [{ version, labels, created_at, created_by }]
 ```
 
+### 2.4 프롬프트 생성/업데이트
+```
+POST /api/v1/prompts
+
+Request Body:
+{
+    "project_id": "string",
+    "name": "string",
+    "prompt": "프롬프트 텍스트 또는 chat messages",
+    "type": "text | chat",
+    "config": {},
+    "labels": ["staging"]
+}
+
+Response:
+{
+    "name": "...",
+    "version": 4,
+    "labels": ["staging"]
+}
+
+내부 동작: Langfuse POST /api/public/v2/prompts 프록시
+권한: user 이상
+```
+
+### 2.5 프롬프트 라벨 승격
+```
+PATCH /api/v1/prompts/{name}/versions/{version}/labels
+
+Request Body:
+{
+    "project_id": "string",
+    "labels": ["production"]
+}
+
+권한: admin
+```
+
 ---
 
 ## 3. 단일 테스트 API
@@ -95,6 +133,9 @@ Request Body:
     },
     "system_prompt": "string (optional)",
     "images": ["base64_encoded_string"],
+    "evaluators": [
+        { "type": "built_in", "name": "json_validity" }
+    ],
     "stream": true
 }
 
@@ -249,7 +290,7 @@ Response:
 {
     "experiment_id": "uuid",
     "name": "...",
-    "status": "running | completed | failed | cancelled",
+    "status": "running | paused | completed | failed | cancelled",
     "progress": {
         "completed": 350,
         "failed": 5,
@@ -274,6 +315,33 @@ POST /api/v1/experiments/{experiment_id}/resume
 POST /api/v1/experiments/{experiment_id}/cancel
 POST /api/v1/experiments/{experiment_id}/retry-failed
 ```
+
+**상태 전이 규칙**:
+```
+                  ┌──────────┐
+    create ──────▶│ running  │◀─── resume
+                  └────┬─────┘
+                       │
+            ┌──────────┼──────────┐
+            ▼          ▼          ▼
+       ┌────────┐ ┌────────┐ ┌──────────┐
+       │ paused │ │completed│ │  failed  │
+       └────┬───┘ └────┬───┘ └────┬─────┘
+            │          │          │
+            │          └─────┬────┘
+            ▼                ▼
+       ┌──────────┐   retry-failed
+       │cancelled │   (→ running)
+       └──────────┘
+```
+
+- `pause`: running → paused
+- `resume`: paused → running
+- `cancel`: running 또는 paused → cancelled
+- `retry-failed`: completed 또는 failed → running (실패 아이템만 재실행)
+- 이미 cancelled인 실험은 재시작 불가 (409 Conflict 반환)
+
+**실험 상태 저장**: Redis에 저장 (TTL 24시간), 완료 시 Langfuse trace metadata로 영속화
 
 ### 4.5 실험 목록 조회
 ```
@@ -324,7 +392,7 @@ Response:
             },
             "scores": {
                 "exact_match": { "avg": 0.87, "min": 0, "max": 1, "stddev": 0.34 },
-                "accuracy_judge": { "avg": 8.2, "min": 3, "max": 10, "stddev": 1.5 }
+                "accuracy_judge": { "avg": 0.82, "min": 0.3, "max": 1.0, "stddev": 0.15 }
             }
         },
         ...
@@ -589,20 +657,74 @@ Request Body:
 
 ---
 
-## 10. 에러 코드
+## 10. 검색 API
+
+### 10.1 글로벌 검색
+```
+GET /api/v1/search
+
+Query Parameters:
+- project_id: string (required)
+- q: string (required, 검색어)
+- type: string (optional, "prompt" | "dataset" | "experiment")
+
+Response:
+{
+    "results": {
+        "prompts": [{ name, latest_version, match_context }],
+        "datasets": [{ name, item_count, match_context }],
+        "experiments": [{ experiment_id, name, status, match_context }]
+    }
+}
+```
+
+---
+
+## 11. 실험/데이터셋 삭제 API
+
+### 11.1 실험 삭제
+```
+DELETE /api/v1/experiments/{experiment_id}
+
+권한: admin
+조건: running 또는 paused 상태의 실험은 삭제 불가 (먼저 cancel 필요)
+```
+
+### 11.2 데이터셋 삭제
+```
+DELETE /api/v1/datasets/{name}
+
+Query Parameters:
+- project_id: string (required)
+
+권한: admin
+내부 동작: Langfuse DELETE /api/public/v2/datasets/{name} 프록시
+```
+
+---
+
+## 12. 에러 코드
 
 | 코드 | HTTP Status | 설명 |
 |------|-------------|------|
 | AUTH_REQUIRED | 401 | 인증 토큰 누락/만료 |
+| FORBIDDEN | 403 | 권한 부족 (RBAC 위반) |
 | PROJECT_NOT_FOUND | 404 | 프로젝트를 찾을 수 없음 |
 | PROMPT_NOT_FOUND | 404 | 프롬프트를 찾을 수 없음 |
 | DATASET_NOT_FOUND | 404 | 데이터셋을 찾을 수 없음 |
 | EXPERIMENT_NOT_FOUND | 404 | 실험을 찾을 수 없음 |
+| STATE_CONFLICT | 409 | 실험 상태 전이 불가 (예: cancelled 실험 재시작) |
 | LLM_ERROR | 502 | LLM 호출 실패 |
 | LLM_TIMEOUT | 504 | LLM 호출 타임아웃 |
 | LLM_RATE_LIMIT | 429 | LLM 프로바이더 rate limit |
 | LANGFUSE_ERROR | 502 | Langfuse API 호출 실패 |
+| CLICKHOUSE_ERROR | 502 | ClickHouse 쿼리 실패 |
 | EVALUATOR_ERROR | 500 | 평가 함수 실행 실패 |
+| EVALUATOR_TIMEOUT | 504 | 커스텀 평가 함수 실행 시간 초과 (5초) |
+| SANDBOX_VIOLATION | 403 | 커스텀 평가 함수 보안 제약 위반 |
 | INVALID_EVALUATOR | 400 | 커스텀 평가 함수 문법 오류 |
 | FILE_PARSE_ERROR | 400 | 업로드 파일 파싱 실패 |
+| FILE_TOO_LARGE | 413 | 업로드 파일 크기 초과 (50MB) |
+| FILE_ENCODING_ERROR | 400 | 파일 인코딩 감지 실패 |
+| MAPPING_ERROR | 400 | 데이터셋 컬럼 매핑 오류 |
 | VALIDATION_ERROR | 422 | 요청 데이터 검증 실패 |

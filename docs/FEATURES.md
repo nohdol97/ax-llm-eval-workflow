@@ -178,13 +178,17 @@ ClickHouse 쿼리 대상:
 |------|------|--------|
 | `exact_match` | 출력과 기대값의 정확 일치 | 0 또는 1 |
 | `contains` | 출력에 기대 키워드 포함 여부 | 0 또는 1 |
+| `regex_match` | 출력이 정규표현식 패턴에 매칭 | 0 또는 1 |
 | `json_validity` | 출력이 유효한 JSON인지 검증 | 0 또는 1 |
 | `json_schema_match` | 출력이 지정 JSON 스키마를 따르는지 | 0 또는 1 |
+| `json_key_presence` | 출력 JSON에 필수 키 존재 비율 | 0.0 ~ 1.0 |
 | `levenshtein_similarity` | 편집 거리 기반 유사도 | 0.0 ~ 1.0 |
 | `cosine_similarity` | 임베딩 기반 의미 유사도 | 0.0 ~ 1.0 |
 | `bleu` | BLEU 스코어 | 0.0 ~ 1.0 |
 | `rouge` | ROUGE-L 스코어 | 0.0 ~ 1.0 |
 | `latency_check` | 응답 시간이 임계값 이내인지 | 0 또는 1 |
+| `token_budget_check` | 출력 토큰 수가 예산 이내인지 | 0 또는 1 |
+| `cost_check` | 호출 비용이 임계값 이내인지 | 0 또는 1 |
 
 #### LLM-as-Judge
 
