@@ -39,11 +39,11 @@
 ### 1.3 사용자 시나리오
 
 ```
-1. 사용자가 Langfuse에서 "order-classification" 프롬프트 v3를 로드
-2. 변수 {{order_text}}에 테스트할 주문 텍스트 입력
-3. 변수 {{category_rules}}에 분류 규칙 JSON 바인딩
+1. 사용자가 Langfuse에서 "sentiment-analysis" 프롬프트 v3를 로드
+2. 변수 {{input_text}}에 분석할 텍스트 입력
+3. 변수 {{analysis_rules}}에 분석 규칙 JSON 바인딩
 4. 모델: GPT-4o, temperature: 0.1 설정
-5. "실행" 클릭 → 스트리밍으로 분류 결과 수신
+5. "실행" 클릭 → 스트리밍으로 분석 결과 수신
 6. 결과 확인 후 temperature를 0.3으로 바꿔 재실행
 7. 두 결과를 나란히 비교
 ```
@@ -85,9 +85,9 @@ Golden Dataset 기반으로 프롬프트/모델의 성능을 체계적으로 평
 ### 2.3 사용자 시나리오
 
 ```
-1. 사용자가 "주문 분류 정확도 실험 v3 vs v4" 실험 생성
-2. 프롬프트: "order-classification" v3, v4 두 버전 선택
-3. 데이터셋: "order-classification-golden-100" 선택
+1. 사용자가 "감성 분석 정확도 실험 v3 vs v4" 실험 생성
+2. 프롬프트: "sentiment-analysis" v3, v4 두 버전 선택
+3. 데이터셋: "sentiment-analysis-golden-100" 선택
 4. 모델: GPT-4o, GPT-4.1, Gemini 2.5 Pro 선택
 5. 평가 함수: exact_match, llm_judge (일관성 평가)
 6. 실행 → 총 600건 (100 아이템 × 2 프롬프트 × 3 모델)

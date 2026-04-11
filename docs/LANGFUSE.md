@@ -107,7 +107,7 @@ trace = langfuse.trace(
         "model": "gpt-4o",
         "parameters": {"temperature": 0.1, ...}
     },
-    tags=["batch-experiment", "order-classification"]
+    tags=["batch-experiment", "sentiment-analysis"]
 )
 ```
 

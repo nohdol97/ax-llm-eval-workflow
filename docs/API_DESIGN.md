@@ -84,8 +84,8 @@ Request Body:
         "content": "string (inline일 때)"
     },
     "variables": {
-        "order_text": "치킨 2마리 배달 부탁드립니다",
-        "category_rules": "{ ... }"
+        "input_text": "이 서비스는 정말 만족스럽습니다",
+        "analysis_rules": "{ ... }"
     },
     "model": "gpt-4o",
     "parameters": {
@@ -101,7 +101,7 @@ Request Body:
 Response (stream=false):
 {
     "trace_id": "string",
-    "output": "분류 결과: 치킨 - 배달",
+    "output": "감성 분석 결과: 긍정 (confidence: 0.95)",
     "usage": {
         "input_tokens": 150,
         "output_tokens": 25,
@@ -144,21 +144,21 @@ POST /api/v1/experiments
 Request Body:
 {
     "project_id": "string",
-    "name": "주문 분류 실험 v3 vs v4",
+    "name": "감성 분석 실험 v3 vs v4",
     "description": "GPT-4o와 Gemini로 프롬프트 v3, v4 비교",
     "prompt_configs": [
         {
-            "name": "order-classification",
+            "name": "sentiment-analysis",
             "version": 3,
             "label": null
         },
         {
-            "name": "order-classification",
+            "name": "sentiment-analysis",
             "version": 4,
             "label": null
         }
     ],
-    "dataset_name": "order-classification-golden-100",
+    "dataset_name": "sentiment-analysis-golden-100",
     "model_configs": [
         {
             "model": "gpt-4o",
@@ -184,7 +184,7 @@ Request Body:
         },
         {
             "type": "custom_code",
-            "name": "category_f1",
+            "name": "label_f1",
             "code": "def evaluate(output, expected, metadata):\n    ..."
         }
     ],
@@ -200,7 +200,7 @@ Response:
     "total_items": 400,
     "runs": [
         {
-            "run_name": "order-classification_v3_gpt-4o_20260411",
+            "run_name": "sentiment-analysis_v3_gpt-4o_20260411",
             "prompt_version": 3,
             "model": "gpt-4o",
             "status": "running"
@@ -446,8 +446,8 @@ Request Body (multipart/form-data):
 - file: File (CSV, JSON, JSONL)
 - mapping: JSON string
     {
-        "input_columns": ["order_text", "user_id"],
-        "output_column": "expected_category",
+        "input_columns": ["input_text", "context"],
+        "output_column": "expected_label",
         "metadata_columns": ["difficulty", "source"]
     }
 
@@ -469,11 +469,11 @@ Request Body (multipart/form-data):
 
 Response:
 {
-    "columns": ["order_text", "user_id", "expected_category", "difficulty"],
+    "columns": ["input_text", "context", "expected_label", "difficulty"],
     "preview": [
         {
-            "input": { "order_text": "...", "user_id": "..." },
-            "expected_output": "치킨",
+            "input": { "input_text": "...", "context": "..." },
+            "expected_output": "positive",
             "metadata": { "difficulty": "easy" }
         },
         ... (최대 5건)
@@ -548,8 +548,8 @@ Request Body:
 {
     "code": "def evaluate(output, expected, metadata):\n    return 1.0 if output == expected else 0.0",
     "test_cases": [
-        { "output": "치킨", "expected": "치킨", "metadata": {} },
-        { "output": "피자", "expected": "치킨", "metadata": {} }
+        { "output": "positive", "expected": "positive", "metadata": {} },
+        { "output": "negative", "expected": "positive", "metadata": {} }
     ]
 }
 
