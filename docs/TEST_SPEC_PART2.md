@@ -1082,7 +1082,7 @@ Phase 4(실험 실행 엔진), Phase 5(평가 시스템), Phase 6(분석), Phase
 |------|------|
 | **테스트 이름** | `test_should_paginate_items_when_page_params_provided` |
 | **입력/설정** | `POST /api/v1/analysis/compare/items` — `page: 1, page_size: 10`, 총 50개 아이템 |
-| **기대 결과** | `items` 배열에 10개 항목. `total: 50`. `page: 1`. 각 아이템: `dataset_item_id`, `input`, `expected_output`, `results` (run별 output/score/latency/cost), `score_variance` |
+| **기대 결과** | `items` 배열에 10개 항목. `total: 50`. `page: 1`. 각 아이템: `dataset_item_id`, `input`, `expected_output`, `results` (run별 output/score/latency/cost), `score_range` |
 | **fixture/mock** | ClickHouse mock |
 | **엣지케이스** | `page: 6` (마지막 페이지 초과) → 빈 items. `page_size: 0` → 에러. `page_size: 1000` → 최대 제한 적용 |
 
@@ -1091,8 +1091,8 @@ Phase 4(실험 실행 엔진), Phase 5(평가 시스템), Phase 6(분석), Phase
 | 항목 | 내용 |
 |------|------|
 | **테스트 이름** | `test_should_sort_items_when_sort_params_provided` |
-| **입력/설정** | `sort_by: "score_variance"`, `sort_order: "desc"` |
-| **기대 결과** | 반환된 items가 score_variance 내림차순으로 정렬됨. 첫 번째 아이템의 score_variance가 가장 큼 |
+| **입력/설정** | `sort_by: "score_range"`, `sort_order: "desc"` |
+| **기대 결과** | 반환된 items가 score_range 내림차순으로 정렬됨. 첫 번째 아이템의 score_range가 가장 큼 |
 | **fixture/mock** | ClickHouse mock |
 | **엣지케이스** | `sort_order: "asc"`. 유효하지 않은 `sort_by` 필드 → 에러 또는 기본 정렬 |
 

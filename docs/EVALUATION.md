@@ -158,12 +158,15 @@ score를 0.0-1.0으로 정규화 (score / 10) 하여 Langfuse에 기록
 
 사용자가 도메인에 맞는 평가 프롬프트를 직접 작성할 수 있다.
 
+**중요**: 커스텀 Judge 프롬프트에서도 반드시 **0-10 범위**의 점수를 반환하도록 지시해야 한다. Labs는 스코어를 `score / 10`으로 정규화하므로, 다른 범위(0-5, 0-100 등)를 사용하면 스코어가 왜곡된다.
+
 ```
 필수 요소:
 - {input}: 입력 데이터 (자동 치환)
 - {output}: LLM 출력 (자동 치환)
 - {expected}: 기대 출력 (자동 치환, optional)
 - 반환 포맷 지시: JSON {"score": <0-10>, "reasoning": "..."}
+- 반드시 0-10 정수 스코어를 사용 (정규화: score / 10 = 0.0~1.0)
 
 선택 요소:
 - 평가 rubric (구체적 채점 기준)
@@ -222,7 +225,7 @@ def evaluate(output: str, expected: str, metadata: dict) -> float:
 | statistics | 통계 함수 |
 | unicodedata | 유니코드 처리 |
 
-**차단된 함수**: print, exec, eval, open, compile, __import__, globals, locals, getattr, setattr, delattr, type 등은 보안상 사용할 수 없다.
+**차단된 함수**: exec, eval, open, compile, __import__ (허용 모듈 외), globals, locals, getattr, setattr, delattr, type, breakpoint, exit, quit 등은 보안상 사용할 수 없다. `__import__`는 허용된 7개 모듈에 한해서만 사용 가능하다.
 
 ### 4.3 실행 환경
 
@@ -375,7 +378,7 @@ Langfuse에 기록되는 score:
 실험 결과 → 의사결정 흐름:
 
 1. avg_score 비교 → 최고 성능 프롬프트/모델 식별
-2. score_variance 분석 → 불안정한 조합 제외
+2. score_range 분석 → 불안정한 조합 제외
 3. cost_per_score 비교 → 비용 효율 최적 조합 선택
 4. outlier 분석 → 실패 케이스 패턴 파악
 5. 프롬프트 개선 → 실패 패턴 기반 프롬프트 수정

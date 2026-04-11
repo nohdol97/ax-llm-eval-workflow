@@ -27,7 +27,16 @@
 GET /api/v1/health
 
 Response:
-{"status": "ok", "version": "1.0.0"}
+{
+    "status": "ok",
+    "version": "1.0.0",
+    "services": {
+        "langfuse": "ok | fail",
+        "litellm": "ok | fail",
+        "clickhouse": "ok | fail",
+        "redis": "ok | fail"
+    }
+}
 
 인증 불필요
 ```
@@ -164,7 +173,10 @@ Response (stream=false):
     },
     "latency_ms": 1200,
     "cost_usd": 0.0023,
-    "model": "gpt-4o"
+    "model": "gpt-4o",
+    "scores": {
+        "exact_match": 1.0
+    }
 }
 
 Response (stream=true):
@@ -425,7 +437,7 @@ Request Body:
     "project_id": "string",
     "run_names": ["run_a", "run_b"],
     "score_name": "exact_match",
-    "sort_by": "score_variance",
+    "sort_by": "score_range",
     "sort_order": "desc",
     "page": 1,
     "page_size": 20
@@ -452,7 +464,7 @@ Response:
                     "cost_usd": 0.015
                 }
             },
-            "score_variance": 1.0
+            "score_range": 1.0
         },
         ...
     ],
@@ -609,7 +621,10 @@ Response:
             "name": "exact_match",
             "description": "출력과 기대값의 정확 일치 여부",
             "return_type": "binary",
-            "parameters": {}
+            "parameters": {
+                "ignore_case": { "type": "boolean", "default": false },
+                "normalize_whitespace": { "type": "boolean", "default": false }
+            }
         },
         {
             "name": "cosine_similarity",
@@ -740,6 +755,7 @@ Query Parameters:
 | EVALUATOR_ERROR | 500 | 평가 함수 실행 실패 |
 | EVALUATOR_TIMEOUT | 504 | 커스텀 평가 함수 실행 시간 초과 (5초) |
 | SANDBOX_VIOLATION | 403 | 커스텀 평가 함수 보안 제약 위반 |
+| EVALUATOR_IMPORT | 400 | 커스텀 평가 함수에서 비허용 모듈 import 시도 |
 | INVALID_EVALUATOR | 400 | 커스텀 평가 함수 문법 오류 |
 | FILE_PARSE_ERROR | 400 | 업로드 파일 파싱 실패 |
 | FILE_TOO_LARGE | 413 | 업로드 파일 크기 초과 (50MB) |

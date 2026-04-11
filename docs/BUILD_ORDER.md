@@ -23,11 +23,11 @@
 - pytest-asyncio, pytest-cov, fakeredis, httpx 의존성
 
 #### 0-2. 공통 Mock/Fixture 구현
-- `backend/tests/fixtures/mock_langfuse.py` — MockLangfuseClient (TEST_SPEC.md 0.3.1 참조)
-- `backend/tests/fixtures/mock_redis.py` — MockRedisClient (TEST_SPEC.md 0.3.2 참조)
-- `backend/tests/fixtures/mock_litellm.py` — MockLiteLLMProxy (TEST_SPEC.md 0.3.3 참조)
-- `backend/tests/fixtures/mock_clickhouse.py` — MockClickHouseClient
-- `backend/tests/fixtures/jwt_helper.py` — create_test_jwt() (TEST_SPEC.md 0.3.4 참조)
+- `backend/tests/fixtures/mock_langfuse.py` — MockLangfuseClient (TEST_SPEC.md 0.3 Mock Langfuse Client 참조)
+- `backend/tests/fixtures/mock_redis.py` — MockRedisClient (TEST_SPEC.md 0.3 Mock Redis Client 참조)
+- `backend/tests/fixtures/mock_litellm.py` — MockLiteLLMProxy (TEST_SPEC.md 0.3 Mock LiteLLM Proxy 참조)
+- `backend/tests/fixtures/mock_clickhouse.py` — MockClickHouseClient (TEST_SPEC.md 0.3.6 참조)
+- `backend/tests/fixtures/jwt_helper.py` — create_test_jwt() (TEST_SPEC.md 0.3 Test JWT Generator 참조)
 
 #### 0-3. Frontend 테스트 설정
 - vitest.config.ts 설정
@@ -271,19 +271,20 @@ cd backend && uvicorn app.main:app --reload --port 8000
 
 # 2. 헬스체크 (인증 없이 접근 가능)
 curl http://localhost:8000/api/v1/health
-# 응답: {"langfuse": "ok", "litellm": "ok", "clickhouse": "ok", "redis": "ok"}
+# 응답: {"status": "ok", "version": "1.0.0", "services": {"langfuse": "ok", ...}}
 
-# 3. 인증 없이 보호된 엔드포인트 접근
-curl http://localhost:8000/api/v1/prompts
-# 응답: 401 Unauthorized
+# 3. JWT 인증 검증 — 인증 없이 임의의 보호된 경로 접근
+# (Prompt API는 Phase 3에서 구현하므로, 여기서는 미들웨어 레벨의 401 확인)
+curl http://localhost:8000/api/v1/projects
+# 응답: 401 Unauthorized (JWT 미포함)
 
-# 4. JWT로 접근
-curl -H "Authorization: Bearer <valid_jwt>" http://localhost:8000/api/v1/health
-# 응답: 200 OK
+# 4. 유효한 JWT로 보호된 엔드포인트 접근
+curl -H "Authorization: Bearer <valid_jwt>" http://localhost:8000/api/v1/projects
+# 응답: 200 OK (빈 목록이라도 인증 통과 확인)
 ```
 
 ### 테스트 명세 참조
-- TEST_SPEC.md Phase 2 (Backend 기초 53개)
+- TEST_SPEC.md Phase 2 (Backend 기초 약 61개)
 
 ---
 
@@ -445,6 +446,11 @@ Redis Lua 스크립트 기반 원자적 상태 전이.
 - 이미 cancelled인 실험은 재시작 불가 (409 Conflict)
 - 상태 전이 규칙은 Lua 스크립트로 Redis에서 원자적으로 처리
 - 실험 완료 시 최종 상태를 Langfuse trace metadata로 영속화
+
+#### 4-5. 실험/데이터셋 삭제 및 글로벌 검색
+- `DELETE /api/v1/experiments/{experiment_id}` (admin 전용, running/paused 상태는 삭제 불가)
+- `DELETE /api/v1/datasets/{name}` (admin 전용, Langfuse 프록시)
+- `GET /api/v1/search` (프롬프트, 데이터셋, 실험 통합 검색)
 
 ### 산출물
 - 단일 테스트: curl로 SSE 스트리밍 응답 수신 가능
@@ -641,7 +647,7 @@ curl -X POST -H "Authorization: Bearer <jwt>" \
 | 실험 간 요약 비교 | Run별 avg_latency, p50/p90/p99, total_cost, avg_tokens |
 | 평가 스코어 비교 | Run별 score_name 기준 avg/min/max/stddev |
 | 아이템별 상세 비교 | 동일 dataset_item_id에 대한 Run별 output/score |
-| Outlier 감지 | score_variance가 큰 아이템 (threshold 0.3) |
+| Outlier 감지 | score_range가 큰 아이템 (threshold 0.3) |
 | 비용 효율 분석 | Run별 score_per_dollar |
 | 스코어 분포 | 히스토그램 bin별 count |
 
@@ -650,7 +656,7 @@ curl -X POST -H "Authorization: Bearer <jwt>" \
 | 엔드포인트 | 기능 |
 |------------|------|
 | `POST /api/v1/analysis/compare` | 요약 비교 (latency, cost, tokens, scores) |
-| `POST /api/v1/analysis/compare/items` | 아이템별 상세 비교 (score_variance 정렬) |
+| `POST /api/v1/analysis/compare/items` | 아이템별 상세 비교 (score_range 정렬) |
 | `GET /api/v1/analysis/scores/distribution` | 스코어 분포 히스토그램 + 통계 |
 
 ### 산출물
@@ -676,7 +682,7 @@ curl -X POST -H "Authorization: Bearer <jwt>" \
     "project_id": "...",
     "run_names": ["run_a", "run_b"],
     "score_name": "exact_match",
-    "sort_by": "score_variance",
+    "sort_by": "score_range",
     "sort_order": "desc"
   }' \
   "http://localhost:8000/api/v1/analysis/compare/items"
@@ -784,6 +790,7 @@ Langfuse Prompt Management 연동.
 - System Prompt (접이식, 기본 닫힘)
 - 파라미터 설정 (접이식): temperature, top_p, max_tokens 등
 - 이미지 첨부 (drag & drop, 미리보기)
+- 변수 프리셋 저장/로드 (localStorage 기반, 프리셋 이름/설명/변수 값 세트)
 
 우측 패널 (55%):
 - 모델 선택 드롭다운 + 실행 버튼 (상단 고정)
@@ -859,7 +866,7 @@ KPI 카드 (요약):
 - 토큰 탭: input/output 토큰 비교
 
 아이템별 비교 테이블:
-- score_variance 기준 정렬 (outlier 우선)
+- score_range 기준 정렬 (outlier 우선)
 - 각 아이템의 input → output → expected → score 나란히 보기
 - 스코어 배지 색상: emerald(높음), amber(중간), rose(낮음)
 

@@ -102,8 +102,8 @@
 **지원 프로바이더**:
 - Azure OpenAI (GPT-4o, GPT-4.1)
 - Google Gemini (Gemini 2.5 Pro/Flash)
-- AWS Bedrock (Claude, Llama)
-- Anthropic Direct (Claude 4.5/4.6)
+- AWS Bedrock (Claude 4.5 Sonnet, Llama 3.3)
+- Anthropic Direct (Claude 4.5 Sonnet, Claude 4.6 Opus)
 - OpenAI Direct (GPT-5.4, o3/o4-mini)
 
 **LiteLLM을 사용하는 이유**:
@@ -202,7 +202,7 @@ services:
   frontend:     # Next.js dev server (port 3000)
   backend:      # FastAPI (port 8000)
   litellm:      # LiteLLM Proxy (port 4000)
-  langfuse:     # Langfuse Web (port 3001)
+  langfuse:     # Langfuse Web (내부 3000, 호스트 노출 3001)
   postgres:     # PostgreSQL (port 5432)
   clickhouse:   # ClickHouse (port 8123)
   redis:        # Redis (port 6379)
@@ -279,7 +279,8 @@ backend_net (운영 환경에서는 VPC/방화벽으로 외부 차단):
   - clickhouse
   - redis
 ```
-- 내부 서비스는 `expose:`만 사용, `ports:` 사용 금지
+- 운영 환경에서 내부 서비스는 `expose:`만 사용, `ports:` 사용 금지
+- 개발 환경에서는 Langfuse Web UI 접근을 위해 `ports: 3001:3000` 허용
 - LiteLLM Proxy: backend_net에서만 접근 가능
 - ClickHouse: backend_net에서만 접근, 읽기 전용 계정 필수
 

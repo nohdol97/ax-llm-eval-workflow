@@ -4,9 +4,11 @@
 Langfuse v3 기반 LLM 프롬프트 실험/평가 워크플로우 도구.
 GenAI Labs 컨셉을 구현하여 프롬프트 관리, 배치 실험, Custom Evaluation, Context Engineering을 하나의 워크플로우로 제공한다.
 
+**용어 규칙**: 문서 내에서 "Labs"는 본 프로젝트(ax-llm-eval-workflow)의 약칭이다. UI 상 표시 이름은 "GenAI Labs"이다.
+
 ## 기술 스택
 - **Backend**: Python 3.12+, FastAPI
-- **Frontend**: Next.js 15 (App Router), TypeScript, Tailwind CSS v4, shadcn/ui
+- **Frontend**: Next.js 15 (App Router), TypeScript, Tailwind CSS v4, shadcn/ui, Recharts, CodeMirror 6, Framer Motion, React Hook Form + Zod, TanStack Query
 - **데이터 레이어**: Langfuse v3 (ClickHouse + PostgreSQL + Redis)
 - **상태 저장**: Redis (실험 상태/진행률, TTL 기반)
 - **LLM Gateway**: LiteLLM Proxy (멀티 프로바이더 통합, Langfuse callback 비활성화)
