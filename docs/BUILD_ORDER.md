@@ -87,7 +87,7 @@ Custom Code Evaluator 실행을 위한 샌드박스 이미지.
 - 네트워크 없음, 볼륨 없음, non-root 사용자
 - 메모리 128MB 제한, 실행 시간 5초 제한
 - `runner.py` (stdin으로 입력 수신, stdout으로 결과 반환) 포함
-- `docker/Dockerfile.sandbox` 또는 `docker/sandbox/` 디렉토리에 배치
+- `docker/eval-sandbox/` 디렉토리에 배치
 
 ### 산출물
 - `docker compose up -d` 실행 시 모든 서비스가 정상 기동
@@ -119,7 +119,7 @@ docker compose exec clickhouse clickhouse-client \
 docker compose exec redis redis-cli ping  # PONG
 
 # 7. sandbox 이미지 빌드
-docker build -f docker/Dockerfile.sandbox -t ax-eval-sandbox .
+docker build -t ax-eval-sandbox:1.0.0 docker/eval-sandbox/
 ```
 
 ---
@@ -618,7 +618,7 @@ project_id=...&run_name=run_a&score_name=exact_match&bins=10"
 - SSE 클라이언트 유틸리티 (`lib/sse.ts`)
 
 #### 7-1. 인증 통합
-- JWT를 httpOnly cookie 또는 메모리에 저장
+- JWT를 메모리에 저장 (localStorage 금지)
 - 401 응답 시 로그인 페이지로 리다이렉트
 - RBAC 기반 UI 렌더링: admin/user/viewer 역할에 따라 버튼/메뉴 표시/숨김
 - 인증 컨텍스트 Provider

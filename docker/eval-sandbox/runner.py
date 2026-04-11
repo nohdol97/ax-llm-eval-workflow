@@ -5,11 +5,12 @@ stdin에서 JSON Lines를 읽어 사용자 정의 평가 코드를 실행하고,
 결과를 stdout으로 JSON으로 출력한다.
 
 입력 형식 (JSON Lines):
-    {"code": "def evaluate(output, expected, metadata):\\n    ...", "output": "...", "expected": "...", "metadata": {}}
+    {"id": "item_001", "code": "def evaluate(output, expected, metadata):\\n    ...", "output": "...", "expected": "...", "metadata": {}}
 
 출력 형식:
-    {"score": 0.85, "error": null}
-    {"score": null, "error": "에러 메시지"}
+    성공: {"id": "item_001", "status": "success", "score": 0.85}
+    에러: {"id": "item_002", "status": "error", "error_code": "EVALUATOR_ERROR", "error_message": "에러 메시지"}
+    타임아웃: {"id": "item_003", "status": "error", "error_code": "EVALUATOR_TIMEOUT", "error_message": "Execution exceeded 5s timeout"}
 
 보안:
     - 허용 모듈: json, re, math, collections, difflib, statistics, unicodedata
@@ -48,6 +49,19 @@ BLOCKED_BUILTINS = frozenset({
     "breakpoint", "exit", "quit", "input", "help", "print",
     "memoryview", "type",
 })
+
+# ── 아이템별 타임아웃 (초) ────────────────────────────────────────
+TIMEOUT_SECONDS = 5
+
+
+class EvalTimeoutError(Exception):
+    """평가 함수 실행 타임아웃."""
+    pass
+
+
+def _timeout_handler(signum: int, frame) -> None:
+    """SIGALRM 핸들러 — 아이템별 타임아웃 시 예외 발생."""
+    raise EvalTimeoutError(f"Execution exceeded {TIMEOUT_SECONDS}s timeout")
 
 
 def _make_safe_builtins() -> dict:
@@ -90,15 +104,26 @@ def _process_line(line: str) -> dict:
     try:
         payload = json.loads(line)
     except json.JSONDecodeError as e:
-        return {"score": None, "error": f"JSON 파싱 실패: {e}"}
+        return {
+            "id": "unknown",
+            "status": "error",
+            "error_code": "EVALUATOR_ERROR",
+            "error_message": f"Invalid JSON input: {e}",
+        }
 
+    item_id = payload.get("id", "unknown")
     code = payload.get("code")
     output = payload.get("output", "")
     expected = payload.get("expected", "")
     metadata = payload.get("metadata", {})
 
     if not code:
-        return {"score": None, "error": "평가 코드(code)가 비어있습니다"}
+        return {
+            "id": item_id,
+            "status": "error",
+            "error_code": "EVALUATOR_ERROR",
+            "error_message": "평가 코드(code)가 비어있습니다",
+        }
 
     # 제한된 네임스페이스에서 코드 실행
     namespace = _make_restricted_namespace()
@@ -106,32 +131,77 @@ def _process_line(line: str) -> dict:
     try:
         exec(code, namespace)  # noqa: S102 — 샌드박스 내 의도적 exec
     except Exception as e:
-        return {"score": None, "error": f"코드 실행 실패: {type(e).__name__}: {e}"}
+        return {
+            "id": item_id,
+            "status": "error",
+            "error_code": "EVALUATOR_ERROR",
+            "error_message": f"Code compilation failed: {type(e).__name__}: {e}",
+        }
 
     # evaluate 함수 존재 확인
     evaluate_fn = namespace.get("evaluate")
     if evaluate_fn is None or not callable(evaluate_fn):
-        return {"score": None, "error": "evaluate() 함수가 정의되지 않았습니다"}
+        return {
+            "id": item_id,
+            "status": "error",
+            "error_code": "EVALUATOR_ERROR",
+            "error_message": "Function 'evaluate' not defined in code",
+        }
 
-    # evaluate 함수 호출
+    # SIGALRM 타임아웃 설정 + evaluate 함수 호출
+    signal.signal(signal.SIGALRM, _timeout_handler)
+    signal.alarm(TIMEOUT_SECONDS)
+
     try:
         score = evaluate_fn(output, expected, metadata)
+    except EvalTimeoutError:
+        return {
+            "id": item_id,
+            "status": "error",
+            "error_code": "EVALUATOR_TIMEOUT",
+            "error_message": f"Execution exceeded {TIMEOUT_SECONDS}s timeout",
+        }
     except Exception as e:
-        return {"score": None, "error": f"evaluate() 실행 실패: {type(e).__name__}: {e}"}
+        return {
+            "id": item_id,
+            "status": "error",
+            "error_code": "EVALUATOR_ERROR",
+            "error_message": f"{type(e).__name__}: {e}",
+        }
+    finally:
+        signal.alarm(0)  # 타이머 해제
 
     # 반환값 검증
     if score is None:
-        return {"score": None, "error": "evaluate()가 None을 반환했습니다"}
+        return {
+            "id": item_id,
+            "status": "error",
+            "error_code": "EVALUATOR_ERROR",
+            "error_message": "evaluate()가 None을 반환했습니다",
+        }
 
     try:
         score = float(score)
     except (TypeError, ValueError) as e:
-        return {"score": None, "error": f"score를 float로 변환 실패: {e}"}
+        return {
+            "id": item_id,
+            "status": "error",
+            "error_code": "EVALUATOR_ERROR",
+            "error_message": f"evaluate() returned non-numeric value: {repr(score)}",
+        }
 
     if not math.isfinite(score):
-        return {"score": None, "error": f"score가 유한하지 않습니다: {score}"}
+        return {
+            "id": item_id,
+            "status": "error",
+            "error_code": "EVALUATOR_ERROR",
+            "error_message": f"score가 유한하지 않습니다: {score}",
+        }
 
-    return {"score": score, "error": None}
+    # 0.0~1.0 클램핑
+    score = max(0.0, min(1.0, score))
+
+    return {"id": item_id, "status": "success", "score": score}
 
 
 def main() -> None:

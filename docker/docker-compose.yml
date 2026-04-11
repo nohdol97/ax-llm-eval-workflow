@@ -64,6 +64,9 @@ services:
     image: ghcr.io/berriai/litellm:main-latest
     expose:
       - "4000"
+    # 개발 환경 전용, 운영에서는 expose만 사용
+    ports:
+      - "${LITELLM_PORT:-4000}:4000"
     env_file:
       - ../.env
     volumes:
@@ -88,6 +91,9 @@ services:
     image: langfuse/langfuse:3
     expose:
       - "3000"
+    # 개발 환경 전용, 운영에서는 expose만 사용
+    ports:
+      - "${LANGFUSE_PORT:-3001}:3000"
     env_file:
       - ../.env
     environment:
@@ -164,6 +170,8 @@ services:
       - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD}
       - CLICKHOUSE_DB=${CLICKHOUSE_DB:-langfuse}
       - CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1
+      - CLICKHOUSE_READONLY_USER=${CLICKHOUSE_READONLY_USER:-labs_readonly}
+      - CLICKHOUSE_READONLY_PASSWORD=${CLICKHOUSE_READONLY_PASSWORD}
     volumes:
       - clickhouse_data:/var/lib/clickhouse
       - clickhouse_logs:/var/log/clickhouse-server

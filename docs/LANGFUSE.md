@@ -174,9 +174,9 @@ SELECT
     JSONExtractString(t.metadata, 'prompt_version') AS prompt_version,
     count(*) AS sample_count,
     avg(o.latency_ms) AS avg_latency_ms,
-    percentile(o.latency_ms, 0.5) AS p50_latency,
-    percentile(o.latency_ms, 0.9) AS p90_latency,
-    percentile(o.latency_ms, 0.99) AS p99_latency,
+    quantile(0.5)(o.latency_ms) AS p50_latency,
+    quantile(0.9)(o.latency_ms) AS p90_latency,
+    quantile(0.99)(o.latency_ms) AS p99_latency,
     sum(o.cost_usd) AS total_cost,
     avg(o.usage_input_tokens) AS avg_input_tokens,
     avg(o.usage_output_tokens) AS avg_output_tokens
