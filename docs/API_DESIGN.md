@@ -1,0 +1,608 @@
+# API 설계
+
+## 1. API 개요
+
+### 기본 정보
+- Base URL: `/api/v1`
+- 인증: JWT Bearer Token
+- Content-Type: `application/json`
+- 스트리밍 응답: `text/event-stream` (SSE)
+
+### 공통 응답 포맷
+```json
+{
+    "status": "success | error",
+    "data": { ... },
+    "error": {
+        "code": "ERROR_CODE",
+        "message": "에러 메시지"
+    }
+}
+```
+
+---
+
+## 2. 프롬프트 API
+
+### 2.1 프롬프트 목록 조회
+```
+GET /api/v1/prompts
+
+Query Parameters:
+- project_id: string (required)
+
+Response:
+- prompts: [{ name, latest_version, labels, tags, created_at }]
+
+내부 동작: Langfuse GET /api/public/v2/prompts 프록시
+```
+
+### 2.2 프롬프트 상세 조회
+```
+GET /api/v1/prompts/{name}
+
+Query Parameters:
+- project_id: string (required)
+- version: int (optional, 미지정 시 최신)
+- label: string (optional, "production" 등)
+
+Response:
+- name, version, type (text|chat), prompt, config, labels
+- variables: [프롬프트에서 추출한 변수 목록]
+
+내부 동작:
+1. Langfuse GET /api/public/v2/prompts/{name} 호출
+2. 프롬프트 내 {{variable}} 패턴 파싱하여 variables 필드 추가
+```
+
+### 2.3 프롬프트 버전 목록
+```
+GET /api/v1/prompts/{name}/versions
+
+Query Parameters:
+- project_id: string (required)
+
+Response:
+- versions: [{ version, labels, created_at, created_by }]
+```
+
+---
+
+## 3. 단일 테스트 API
+
+### 3.1 단일 테스트 실행
+```
+POST /api/v1/tests/single
+
+Request Body:
+{
+    "project_id": "string",
+    "prompt": {
+        "source": "langfuse | inline",
+        "name": "string (langfuse일 때)",
+        "version": 3,
+        "content": "string (inline일 때)"
+    },
+    "variables": {
+        "order_text": "치킨 2마리 배달 부탁드립니다",
+        "category_rules": "{ ... }"
+    },
+    "model": "gpt-4o",
+    "parameters": {
+        "temperature": 0.1,
+        "max_tokens": 1024,
+        "top_p": 1.0
+    },
+    "system_prompt": "string (optional)",
+    "images": ["base64_encoded_string"],
+    "stream": true
+}
+
+Response (stream=false):
+{
+    "trace_id": "string",
+    "output": "분류 결과: 치킨 - 배달",
+    "usage": {
+        "input_tokens": 150,
+        "output_tokens": 25,
+        "total_tokens": 175
+    },
+    "latency_ms": 1200,
+    "cost_usd": 0.0023,
+    "model": "gpt-4o"
+}
+
+Response (stream=true):
+Content-Type: text/event-stream
+
+event: token
+data: {"content": "분류"}
+
+event: token
+data: {"content": " 결과"}
+
+event: done
+data: {"trace_id": "...", "usage": {...}, "latency_ms": 1200, "cost_usd": 0.0023}
+
+event: error
+data: {"code": "LLM_ERROR", "message": "Rate limit exceeded"}
+```
+
+### 3.2 단일 테스트 중단
+```
+POST /api/v1/tests/single/{trace_id}/cancel
+```
+
+---
+
+## 4. 배치 실험 API
+
+### 4.1 실험 생성 및 실행
+```
+POST /api/v1/experiments
+
+Request Body:
+{
+    "project_id": "string",
+    "name": "주문 분류 실험 v3 vs v4",
+    "description": "GPT-4o와 Gemini로 프롬프트 v3, v4 비교",
+    "prompt_configs": [
+        {
+            "name": "order-classification",
+            "version": 3,
+            "label": null
+        },
+        {
+            "name": "order-classification",
+            "version": 4,
+            "label": null
+        }
+    ],
+    "dataset_name": "order-classification-golden-100",
+    "model_configs": [
+        {
+            "model": "gpt-4o",
+            "parameters": { "temperature": 0.1 }
+        },
+        {
+            "model": "gemini-2.5-pro",
+            "parameters": { "temperature": 0.1 }
+        }
+    ],
+    "evaluators": [
+        {
+            "type": "built_in",
+            "name": "exact_match"
+        },
+        {
+            "type": "llm_judge",
+            "name": "accuracy_judge",
+            "config": {
+                "judge_model": "gpt-4o",
+                "prompt": "주어진 입력에 대해 출력이 정확한지 0-10 점수로 평가하세요..."
+            }
+        },
+        {
+            "type": "custom_code",
+            "name": "category_f1",
+            "code": "def evaluate(output, expected, metadata):\n    ..."
+        }
+    ],
+    "concurrency": 5,
+    "system_prompt": "string (optional)"
+}
+
+Response:
+{
+    "experiment_id": "uuid",
+    "status": "running",
+    "total_runs": 4,
+    "total_items": 400,
+    "runs": [
+        {
+            "run_name": "order-classification_v3_gpt-4o_20260411",
+            "prompt_version": 3,
+            "model": "gpt-4o",
+            "status": "running"
+        },
+        ...
+    ]
+}
+```
+
+### 4.2 실험 상태 스트리밍
+```
+GET /api/v1/experiments/{experiment_id}/stream
+
+Response: text/event-stream
+
+event: progress
+data: {
+    "run_name": "...",
+    "completed": 45,
+    "total": 100,
+    "current_item": { "id": "...", "status": "completed", "score": 0.85 }
+}
+
+event: run_complete
+data: {
+    "run_name": "...",
+    "summary": { "avg_score": 0.87, "total_cost": 1.23, "avg_latency": 1100 }
+}
+
+event: experiment_complete
+data: {
+    "experiment_id": "...",
+    "total_duration_sec": 340,
+    "total_cost_usd": 5.67
+}
+
+event: error
+data: { "run_name": "...", "item_id": "...", "error": "Timeout" }
+```
+
+### 4.3 실험 상태 조회
+```
+GET /api/v1/experiments/{experiment_id}
+
+Response:
+{
+    "experiment_id": "uuid",
+    "name": "...",
+    "status": "running | completed | failed | cancelled",
+    "progress": {
+        "completed": 350,
+        "failed": 5,
+        "total": 400
+    },
+    "runs": [
+        {
+            "run_name": "...",
+            "status": "completed",
+            "summary": { "avg_score": 0.87, ... }
+        }
+    ],
+    "created_at": "...",
+    "completed_at": "..."
+}
+```
+
+### 4.4 실험 제어
+```
+POST /api/v1/experiments/{experiment_id}/pause
+POST /api/v1/experiments/{experiment_id}/resume
+POST /api/v1/experiments/{experiment_id}/cancel
+POST /api/v1/experiments/{experiment_id}/retry-failed
+```
+
+### 4.5 실험 목록 조회
+```
+GET /api/v1/experiments
+
+Query Parameters:
+- project_id: string (required)
+- status: string (optional)
+- page: int (default 1)
+- page_size: int (default 20)
+
+Response:
+- experiments: [{ experiment_id, name, status, total_runs, created_at }]
+- total: int
+- page: int
+```
+
+---
+
+## 5. 실험 비교/분석 API
+
+### 5.1 실험 간 요약 비교
+```
+POST /api/v1/analysis/compare
+
+Request Body:
+{
+    "project_id": "string",
+    "run_names": ["run_a", "run_b", "run_c"]
+}
+
+Response:
+{
+    "comparison": [
+        {
+            "run_name": "run_a",
+            "model": "gpt-4o",
+            "prompt_version": 3,
+            "metrics": {
+                "sample_count": 100,
+                "avg_latency_ms": 1100,
+                "p50_latency_ms": 950,
+                "p90_latency_ms": 1800,
+                "p99_latency_ms": 3200,
+                "total_cost_usd": 1.23,
+                "avg_input_tokens": 150,
+                "avg_output_tokens": 45
+            },
+            "scores": {
+                "exact_match": { "avg": 0.87, "min": 0, "max": 1, "stddev": 0.34 },
+                "accuracy_judge": { "avg": 8.2, "min": 3, "max": 10, "stddev": 1.5 }
+            }
+        },
+        ...
+    ]
+}
+```
+
+### 5.2 아이템별 상세 비교
+```
+POST /api/v1/analysis/compare/items
+
+Request Body:
+{
+    "project_id": "string",
+    "run_names": ["run_a", "run_b"],
+    "score_name": "exact_match",
+    "sort_by": "score_variance",
+    "sort_order": "desc",
+    "page": 1,
+    "page_size": 20
+}
+
+Response:
+{
+    "items": [
+        {
+            "dataset_item_id": "...",
+            "input": { ... },
+            "expected_output": "...",
+            "results": {
+                "run_a": {
+                    "output": "...",
+                    "score": 1.0,
+                    "latency_ms": 900,
+                    "cost_usd": 0.012
+                },
+                "run_b": {
+                    "output": "...",
+                    "score": 0.0,
+                    "latency_ms": 1200,
+                    "cost_usd": 0.015
+                }
+            },
+            "score_variance": 1.0
+        },
+        ...
+    ],
+    "total": 100,
+    "page": 1
+}
+```
+
+### 5.3 스코어 분포 조회
+```
+GET /api/v1/analysis/scores/distribution
+
+Query Parameters:
+- project_id: string
+- run_name: string
+- score_name: string
+- bins: int (default 10)
+
+Response:
+{
+    "distribution": [
+        { "bin_start": 0.0, "bin_end": 0.1, "count": 5 },
+        { "bin_start": 0.1, "bin_end": 0.2, "count": 3 },
+        ...
+    ],
+    "statistics": {
+        "mean": 0.87,
+        "median": 0.92,
+        "stddev": 0.15,
+        "min": 0.0,
+        "max": 1.0
+    }
+}
+```
+
+---
+
+## 6. 데이터셋 API
+
+### 6.1 데이터셋 목록 조회
+```
+GET /api/v1/datasets
+
+Query Parameters:
+- project_id: string (required)
+
+Response:
+- datasets: [{ name, item_count, created_at, last_used_at, metadata }]
+
+내부 동작: Langfuse GET /api/public/v2/datasets 프록시
+```
+
+### 6.2 데이터셋 아이템 조회
+```
+GET /api/v1/datasets/{name}/items
+
+Query Parameters:
+- project_id: string
+- page: int
+- page_size: int
+
+Response:
+- items: [{ id, input, expected_output, metadata }]
+- total: int
+```
+
+### 6.3 데이터셋 업로드
+```
+POST /api/v1/datasets/upload
+
+Request Body (multipart/form-data):
+- project_id: string
+- dataset_name: string
+- description: string
+- file: File (CSV, JSON, JSONL)
+- mapping: JSON string
+    {
+        "input_columns": ["order_text", "user_id"],
+        "output_column": "expected_category",
+        "metadata_columns": ["difficulty", "source"]
+    }
+
+Response:
+{
+    "dataset_name": "...",
+    "items_created": 100,
+    "status": "completed"
+}
+```
+
+### 6.4 업로드 미리보기
+```
+POST /api/v1/datasets/upload/preview
+
+Request Body (multipart/form-data):
+- file: File
+- mapping: JSON string
+
+Response:
+{
+    "columns": ["order_text", "user_id", "expected_category", "difficulty"],
+    "preview": [
+        {
+            "input": { "order_text": "...", "user_id": "..." },
+            "expected_output": "치킨",
+            "metadata": { "difficulty": "easy" }
+        },
+        ... (최대 5건)
+    ],
+    "total_rows": 100
+}
+```
+
+---
+
+## 7. 모델 API
+
+### 7.1 사용 가능 모델 목록
+```
+GET /api/v1/models
+
+Response:
+{
+    "models": [
+        {
+            "id": "gpt-4o",
+            "provider": "azure",
+            "display_name": "GPT-4o (Azure)",
+            "supports_vision": true,
+            "supports_streaming": true,
+            "max_tokens": 128000,
+            "cost_per_1k_input": 0.0025,
+            "cost_per_1k_output": 0.01
+        },
+        ...
+    ]
+}
+
+내부 동작: LiteLLM Proxy /model/info 프록시
+```
+
+---
+
+## 8. 평가 함수 API
+
+### 8.1 내장 평가 함수 목록
+```
+GET /api/v1/evaluators/built-in
+
+Response:
+{
+    "evaluators": [
+        {
+            "name": "exact_match",
+            "description": "출력과 기대값의 정확 일치 여부",
+            "return_type": "binary",
+            "parameters": {}
+        },
+        {
+            "name": "cosine_similarity",
+            "description": "임베딩 기반 의미 유사도",
+            "return_type": "float",
+            "parameters": {
+                "embedding_model": { "type": "string", "default": "text-embedding-3-small" }
+            }
+        },
+        ...
+    ]
+}
+```
+
+### 8.2 커스텀 평가 함수 검증
+```
+POST /api/v1/evaluators/validate
+
+Request Body:
+{
+    "code": "def evaluate(output, expected, metadata):\n    return 1.0 if output == expected else 0.0",
+    "test_cases": [
+        { "output": "치킨", "expected": "치킨", "metadata": {} },
+        { "output": "피자", "expected": "치킨", "metadata": {} }
+    ]
+}
+
+Response:
+{
+    "valid": true,
+    "test_results": [
+        { "input_index": 0, "result": 1.0, "error": null },
+        { "input_index": 1, "result": 0.0, "error": null }
+    ]
+}
+```
+
+---
+
+## 9. 프로젝트 API
+
+### 9.1 프로젝트 목록
+```
+GET /api/v1/projects
+
+Response:
+- projects: [{ id, name, created_at }]
+
+내부 동작: Langfuse에 등록된 프로젝트 API Key 목록 기반
+```
+
+### 9.2 프로젝트 전환
+```
+POST /api/v1/projects/switch
+
+Request Body:
+{ "project_id": "string" }
+
+내부 동작: 해당 프로젝트의 Langfuse API Key로 클라이언트 전환
+```
+
+---
+
+## 10. 에러 코드
+
+| 코드 | HTTP Status | 설명 |
+|------|-------------|------|
+| AUTH_REQUIRED | 401 | 인증 토큰 누락/만료 |
+| PROJECT_NOT_FOUND | 404 | 프로젝트를 찾을 수 없음 |
+| PROMPT_NOT_FOUND | 404 | 프롬프트를 찾을 수 없음 |
+| DATASET_NOT_FOUND | 404 | 데이터셋을 찾을 수 없음 |
+| EXPERIMENT_NOT_FOUND | 404 | 실험을 찾을 수 없음 |
+| LLM_ERROR | 502 | LLM 호출 실패 |
+| LLM_TIMEOUT | 504 | LLM 호출 타임아웃 |
+| LLM_RATE_LIMIT | 429 | LLM 프로바이더 rate limit |
+| LANGFUSE_ERROR | 502 | Langfuse API 호출 실패 |
+| EVALUATOR_ERROR | 500 | 평가 함수 실행 실패 |
+| INVALID_EVALUATOR | 400 | 커스텀 평가 함수 문법 오류 |
+| FILE_PARSE_ERROR | 400 | 업로드 파일 파싱 실패 |
+| VALIDATION_ERROR | 422 | 요청 데이터 검증 실패 |
