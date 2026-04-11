@@ -61,7 +61,8 @@ ax-llm-eval-workflow/
 │   ├── FEATURES.md        # 기능 명세
 │   ├── LANGFUSE.md        # Langfuse 연동 전략
 │   ├── API_DESIGN.md      # API 설계
-│   └── EVALUATION.md      # 평가 시스템 설계
+│   ├── EVALUATION.md      # 평가 시스템 설계
+│   └── UI_UX_DESIGN.md    # UI/UX 설계
 ├── backend/               # FastAPI 백엔드
 ├── frontend/              # Next.js 프론트엔드
 ├── docker/                # Docker 설정
@@ -78,6 +79,7 @@ ax-llm-eval-workflow/
 | [LANGFUSE.md](docs/LANGFUSE.md) | Langfuse v3 연동 전략, API 매핑, ClickHouse 활용 |
 | [API_DESIGN.md](docs/API_DESIGN.md) | REST API 설계, 엔드포인트, 요청/응답 스키마 |
 | [EVALUATION.md](docs/EVALUATION.md) | 평가 시스템 설계, Custom Evaluator, 스코어링 |
+| [UI_UX_DESIGN.md](docs/UI_UX_DESIGN.md) | UI/UX 설계, 디자인 토큰, 페이지별 레이아웃, 인터랙션 |
 
 ## 라이선스
 
