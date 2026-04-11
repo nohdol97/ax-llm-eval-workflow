@@ -161,6 +161,8 @@ LiteLLM Proxy 설정:
 
 ## 3. ClickHouse 직접 쿼리
 
+> ⚠ 아래 쿼리의 테이블명과 컬럼명은 Langfuse v3의 ClickHouse 스키마 예시이다. 실제 배포 후 `SHOW CREATE TABLE traces`, `SHOW CREATE TABLE observations` 등으로 스키마를 확인하고 쿼리를 조정해야 한다.
+
 ### 3.1 사용 목적
 Langfuse SDK/API로는 복잡한 집계 쿼리가 불가능하거나 비효율적인 경우, ClickHouse에 직접 쿼리한다.
 

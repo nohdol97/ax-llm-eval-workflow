@@ -22,6 +22,18 @@
 
 ---
 
+## 1.5 헬스 체크
+```
+GET /api/v1/health
+
+Response:
+{"status": "ok", "version": "1.0.0"}
+
+인증 불필요
+```
+
+---
+
 ## 2. 프롬프트 API
 
 ### 2.1 프롬프트 목록 조회
@@ -653,6 +665,8 @@ Request Body:
 { "project_id": "string" }
 
 내부 동작: 해당 프로젝트의 Langfuse API Key로 클라이언트 전환
+
+NOTE: 이 엔드포인트는 프로젝트 전환 검증용이다. 실제 전환은 stateless — 이후 API 호출 시 project_id 파라미터로 프로젝트를 지정한다.
 ```
 
 ---

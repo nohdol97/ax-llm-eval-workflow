@@ -90,6 +90,15 @@ def _safe_import(name, *args, **kwargs):
     return __import__(name, *args, **kwargs)
 
 
+# 허용 모듈의 __builtins__에서도 __import__를 _safe_import로 교체
+for mod_name, mod in ALLOWED_MODULES.items():
+    if hasattr(mod, '__builtins__'):
+        if isinstance(mod.__builtins__, dict):
+            mod.__builtins__['__import__'] = _safe_import
+        elif isinstance(mod.__builtins__, type(__builtins__)):
+            mod.__builtins__.__import__ = _safe_import
+
+
 def _make_restricted_namespace() -> dict:
     """제한된 실행 네임스페이스 생성."""
     namespace = {

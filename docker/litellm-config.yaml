@@ -62,9 +62,6 @@ model_list:
 
 # ── 일반 설정 ──────────────────────────────────────────────────────
 litellm_settings:
-  # Master Key (환경변수에서 주입)
-  master_key: os.environ/LITELLM_MASTER_KEY
-
   # 요청 제한 (초당/분당)
   max_budget: 100  # USD 일일 예산 상한
   num_retries: 2
