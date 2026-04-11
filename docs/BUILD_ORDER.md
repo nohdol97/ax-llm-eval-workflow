@@ -19,8 +19,8 @@
 
 | 서비스 | 이미지 | 포트 | 비고 |
 |--------|--------|------|------|
-| langfuse | langfuse/langfuse:v3 | 3001 | Langfuse Web UI |
-| postgres | postgres:16 | 5432 | Langfuse 메타데이터 저장 |
+| langfuse | langfuse/langfuse:3 | 3001 | Langfuse Web UI |
+| postgres | postgres:15-alpine | 5432 | Langfuse 메타데이터 저장 |
 | clickhouse | clickhouse/clickhouse-server | 8123 | 시계열 분석 데이터 |
 | redis | redis:7 | 6379 | Langfuse 큐잉 + Labs 실험 상태 |
 | litellm | ghcr.io/berriai/litellm | 4000 | LLM Gateway |

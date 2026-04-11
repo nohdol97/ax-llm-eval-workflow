@@ -84,11 +84,19 @@ def _make_safe_builtins() -> dict:
     return safe
 
 
+def _safe_import(name, *args, **kwargs):
+    if name not in ALLOWED_MODULES:
+        raise ImportError(f"Import of '{name}' is not allowed in sandbox")
+    return __import__(name, *args, **kwargs)
+
+
 def _make_restricted_namespace() -> dict:
     """제한된 실행 네임스페이스 생성."""
     namespace = {
         "__builtins__": _make_safe_builtins(),
     }
+    # import 문 차단: 허용된 7개 모듈만 통과
+    namespace['__builtins__']['__import__'] = _safe_import
     # 허용 모듈 주입
     namespace.update(ALLOWED_MODULES)
     return namespace
@@ -136,6 +144,7 @@ def _process_line(line: str) -> dict:
     try:
         exec(code, namespace)  # noqa: S102 — 샌드박스 내 의도적 exec
     except EvalTimeoutError:
+        signal.alarm(0)
         return {
             "id": item_id,
             "status": "error",

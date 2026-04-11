@@ -202,7 +202,7 @@ ClickHouse 쿼리 대상:
 - Python 함수로 평가 로직 작성
 - 함수 시그니처: `def evaluate(output: str, expected: str, metadata: dict) -> float`
 - 반환값: 0.0 ~ 1.0 사이 float
-- 외부 라이브러리 사용 가능 (사전 등록된 패키지)
+- Python 표준 라이브러리 7개만 사용 가능 (json, re, math, collections, difflib, statistics, unicodedata)
 - 샌드박스 환경에서 실행 (보안)
 
 ### 5.3 평가 파이프라인

@@ -71,7 +71,7 @@ litellm_settings:
   request_timeout: 120  # 초
 
   # Langfuse callback 비활성화 — Labs Backend가 trace 기록 전담
-  # success_callback: ["langfuse"]  # 사용하지 않음
+  success_callback: []
 
   # 캐시 설정 (동일 요청 비용 절감)
   cache: false  # 실험 워크플로우에서는 캐시 비활성화 (매번 새로운 응답 필요)

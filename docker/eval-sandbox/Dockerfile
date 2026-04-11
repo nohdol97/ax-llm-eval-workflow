@@ -26,4 +26,4 @@ COPY runner.py /runner.py
 # non-root 사용자로 실행
 USER nobody
 
-ENTRYPOINT ["python", "/runner.py"]
+ENTRYPOINT ["python", "-u", "/runner.py"]
