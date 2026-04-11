@@ -65,10 +65,16 @@ ax-llm-eval-workflow/
 │   ├── LANGFUSE.md        # Langfuse 연동 전략
 │   ├── API_DESIGN.md      # API 설계
 │   ├── EVALUATION.md      # 평가 시스템 설계
-│   └── UI_UX_DESIGN.md    # UI/UX 설계
+│   ├── UI_UX_DESIGN.md    # UI/UX 설계
+│   ├── IMPLEMENTATION.md  # 구현 명세 (Redis, 샌드박스, Auth, 환경변수)
+│   └── BUILD_ORDER.md     # 구현 순서 가이드
+├── docker/                # Docker 설정
+│   ├── docker-compose.yml # 개발 환경 (7 서비스, 2 네트워크)
+│   ├── litellm-config.yaml# LiteLLM 프록시 설정
+│   ├── eval-sandbox/      # Custom Evaluator 샌드박스 이미지
+│   └── scripts/           # 인프라 셋업 스크립트
 ├── backend/               # FastAPI 백엔드
 ├── frontend/              # Next.js 프론트엔드
-├── docker/                # Docker 설정
 ├── scripts/               # 자동화 스크립트
 └── .github/workflows/     # CI/CD
 ```
@@ -83,6 +89,8 @@ ax-llm-eval-workflow/
 | [API_DESIGN.md](docs/API_DESIGN.md) | REST API 설계, 엔드포인트, 요청/응답 스키마 |
 | [EVALUATION.md](docs/EVALUATION.md) | 평가 시스템 설계, Custom Evaluator, 스코어링 |
 | [UI_UX_DESIGN.md](docs/UI_UX_DESIGN.md) | UI/UX 설계, 디자인 토큰, 페이지별 레이아웃, 인터랙션 |
+| [IMPLEMENTATION.md](docs/IMPLEMENTATION.md) | Redis 스키마, 샌드박스 프로토콜, Auth, 프로젝트 관리, 환경변수 |
+| [BUILD_ORDER.md](docs/BUILD_ORDER.md) | 7단계 구현 순서, Phase별 의존성/산출물/검증 |
 
 ## 라이선스
 

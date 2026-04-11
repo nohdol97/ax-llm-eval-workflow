@@ -184,7 +184,7 @@ score를 0.0-1.0으로 정규화 (score / 10) 하여 Langfuse에 기록
 
 - Judge 호출도 비용이 발생함 → 비용 추정 UI 제공
 - Judge 모델과 평가 대상 모델이 같으면 편향 가능성 → 경고 표시
-- Judge 응답 파싱 실패 시 재시도, 3회 실패 시 score=null로 기록
+- Judge 응답 파싱 실패 시 재시도 (초기 시도 1회 + 재시도 최대 2회 = 총 최대 3회 호출), 3회 모두 실패 시 score=null로 기록
 - Judge 비용은 실험 비용에 별도 집계
 
 ---
@@ -234,8 +234,15 @@ def evaluate(output: str, expected: str, metadata: dict) -> float:
 └── 허용된 패키지 외 import 금지
 
 구현 방식:
-- RestrictedPython 또는 별도 프로세스 샌드박스
-- 함수 코드를 동적으로 로드하여 실행
+- Docker 컨테이너 격리 (ax-eval-sandbox 이미지)
+- stdin/stdout JSON 파이프 통신
+  - 배치: 장수 컨테이너 (docker run -i), 줄 단위 JSON
+  - 단일: docker run --rm
+- 컨테이너 제약:
+  - --network=none, --memory=128m, --cpus=0.5
+  - --user=nobody, --read-only
+- runner.py가 매 아이템마다 fresh namespace에서 exec()
+- admin 역할만 실행 가능
 - 예외 발생 시 catch하여 score=null + 에러 메시지 기록
 ```
 
@@ -324,8 +331,8 @@ Langfuse에 score 기록 (trace_id 기준)
 | Built-in evaluator 예외 | score=null, 에러 로그, 실험 계속 |
 | Custom evaluator 타임아웃 | score=null, "TIMEOUT" 기록, 실험 계속 |
 | Custom evaluator 예외 | score=null, 예외 메시지 기록, 실험 계속 |
-| LLM Judge 호출 실패 | 최대 2회 재시도, 실패 시 score=null |
-| LLM Judge 응답 파싱 실패 | 최대 2회 재시도, 실패 시 score=null |
+| LLM Judge 호출 실패 | 초기 시도 1회 + 재시도 최대 2회 = 총 최대 3회 호출. 3회 모두 실패 시 score=null |
+| LLM Judge 응답 파싱 실패 | 초기 시도 1회 + 재시도 최대 2회 = 총 최대 3회 호출. 3회 모두 실패 시 score=null |
 | 모든 evaluator 실패 | 아이템을 "평가 실패"로 표시, 실험은 계속 |
 
 ### 5.3 성능 고려사항
