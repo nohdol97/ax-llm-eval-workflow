@@ -255,7 +255,8 @@ Request Body:
     "evaluators": [
         {
             "type": "built_in",
-            "name": "exact_match"
+            "name": "exact_match",
+            "weight": 0.5
         },
         {
             "type": "llm_judge",
@@ -263,13 +264,14 @@ Request Body:
             "config": {
                 "judge_model": "gpt-4o",
                 "prompt": "주어진 입력에 대해 출력이 정확한지 0-10 점수로 평가하세요..."
-            }
+            },
+            "weight": 0.3
         },
         {
             "type": "custom_code",
             "name": "label_f1",
             "code": "def evaluate(output, expected, metadata):\n    ...",
-            "weight": 1.0
+            "weight": 0.2
         }
     ],
     "concurrency": 5,
@@ -283,6 +285,8 @@ Request Body:
 - dataset_name: Langfuse에 존재해야 함
 - concurrency: 1~20 (기본: 5)
 - name: 1~100자
+- evaluators[].weight: 0.0~1.0, 모두 지정 시 합계는 [1.0 - 1e-6, 1.0 + 1e-6] 범위. 미지정 시 EVALUATION.md §5.4.1 기본값 규칙 적용 (균등 분배 또는 잔여 균등 분배)
+- evaluators[].type: `built_in` | `llm_judge` | `custom_code` | `approved` (submission_id 참조)
 
 Response:
 {
@@ -664,7 +668,21 @@ data: {"code": "LANGFUSE_ERROR", "message": "..."}
 2. `GET /datasets/upload/{upload_id}/stream` 구독하여 진행률 수신
 3. 완료 시 done 이벤트로 최종 결과 수신
 
+**동작 규칙**:
+- **500행 이하**: 동기 처리, 즉시 완료 Response 반환 (기존 동작)
+- **500행 초과**: 202 Accepted + upload_id 반환, 백그라운드 처리
+- **클라이언트 구독 없이도 처리 계속**: 서버는 Redis에 progress snapshot 지속 기록
+- **재접속 지원**: upload_id TTL 1시간 내 재구독 가능. 구독 시 현재 snapshot 즉시 전송 후 live 이벤트 append
+- **다중 구독자**: 여러 탭에서 동일 upload_id 구독 가능 (각 소비자가 독립적으로 Redis 폴링)
+- **권한 검증**: `ax:dataset_upload:{upload_id}` Hash에 `owner_user_id` 필드 저장. SSE 요청 시 JWT sub와 일치 확인. admin은 우회 허용
+- **파일 본문 저장**: 업로드된 파일은 `/tmp/ax-uploads/{upload_id}` 임시 저장, 처리 완료 또는 TTL 만료 시 자동 삭제
+- **Progress 해상도**: 매 10 아이템마다 SSE 이벤트 발송 (throttling)
+- **Heartbeat**: 15초마다 `: heartbeat\n\n` 주석 전송 (연결 유지), 60초 무응답 시 `error` 이벤트 후 종료
+- **Partial 실패**: row-level 에러는 `failed_items`에 기록하고 계속 진행. file-level 에러는 즉시 `error` 이벤트 후 종료
+- **재업로드**: 동일 dataset_name은 `mode=overwrite|append|fail` 쿼리 파라미터로 제어 (기본: fail)
+
 Redis 저장: `ax:dataset_upload:{upload_id}` (TTL 1시간)
+- fields: `owner_user_id`, `dataset_name`, `total`, `completed`, `failed`, `status`, `created_at`, `failed_items` (JSON)
 
 ### 6.4 업로드 미리보기
 ```
@@ -890,7 +908,7 @@ Query Parameters:
 
 Response:
 - notifications: [{
-    id, type ("experiment_complete" | "experiment_failed" | "evaluator_approved" | "evaluator_rejected"),
+    id, type ("experiment_complete" | "experiment_failed" | "experiment_cancelled" | "evaluator_approved" | "evaluator_rejected" | "evaluator_submission_pending"),
     title, message, target_url, read, created_at
   }]
 - unread_count: int
@@ -956,16 +974,27 @@ Query Parameters:
 - project_id: string
 
 Response:
-- evaluators: [{ submission_id, name, description, approved_at, approver }]
+- evaluators: [{ submission_id, name, description, version, approved_at, approver }]
 
 권한: user 이상 (위저드 Step 3에서 체크박스 목록으로 표시)
 ```
 
+**Scope**: Evaluator 승인은 **프로젝트별 격리**. `project_id`별로 독립 카탈로그 유지. 동일 evaluator를 다른 프로젝트에서 사용하려면 재제출 필요.
+
+**재제출 처리**:
+- 반려 후 재제출: 새 `submission_id` 발급 (이전 제출은 rejected 상태로 보존)
+- 승인된 evaluator 업데이트: admin이 `POST /evaluators/submissions/{id}/new-version` 호출 (버전 증가, 기존 version은 보존)
+- 삭제: `DELETE /evaluators/submissions/{id}` (admin 전용, 상태 `deprecated`로 전환 — 실제 삭제 아님)
+
 **실험 생성 시 참조 방식**: `POST /experiments`의 `evaluators[]`에 다음 형식 추가:
 ```json
-{ "type": "approved", "submission_id": "uuid", "weight": 0.3 }
+{ "type": "approved", "submission_id": "uuid", "version": 3, "weight": 0.3 }
 ```
-백엔드가 submission_id로 Redis에서 코드를 조회하여 Custom Code Evaluator와 동일하게 실행.
+
+**코드 버전 고정 (재현성 보장)**:
+- 실험 생성 시점에 해당 submission_id + version의 코드를 **`ax:experiment:{id}` → `config` snapshot에 inline 포함**
+- 실행 중 admin이 evaluator를 삭제/반려해도 실행 중인 실험은 snapshot의 고정된 코드로 완료
+- retry-failed 시에도 원본 snapshot의 코드 그대로 재실행
 
 ### 14.3 제출 승인/반려
 ```

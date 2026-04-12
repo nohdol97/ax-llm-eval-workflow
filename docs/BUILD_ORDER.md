@@ -379,7 +379,7 @@ curl -X POST -H "Authorization: Bearer <jwt>" \
 ```
 
 ### 테스트 명세 참조
-- TEST_SPEC.md Phase 3 (Core API 약 126개)
+- TEST_SPEC.md Phase 3 (Core API 약 126개 + 신규 기능 테스트 필요: notifications 10+, submissions 15+, datasets/from-items+upload stream 12+, latency/cost distribution 6+)
 
 ---
 
@@ -645,7 +645,7 @@ curl -X POST -H "Authorization: Bearer <jwt>" \
 ```
 
 ### 테스트 명세 참조
-- TEST_SPEC_PART2.md Phase 5 (평가 시스템 약 53개)
+- TEST_SPEC_PART2.md Phase 5 (평가 시스템 약 53개 + weighted_score 5+, evaluator 거버넌스 10+ 필요)
 
 ---
 
@@ -684,8 +684,10 @@ curl -X POST -H "Authorization: Bearer <jwt>" \
 | 엔드포인트 | 기능 |
 |------------|------|
 | `POST /api/v1/analysis/compare` | 요약 비교 (latency, cost, tokens, scores) |
-| `POST /api/v1/analysis/compare/items` | 아이템별 상세 비교 (score_range 정렬) |
-| `GET /api/v1/analysis/scores/distribution` | 스코어 분포 히스토그램 + 통계 |
+| `POST /api/v1/analysis/compare/items` | 아이템별 상세 비교 (score_range 정렬, score_min/max 필터) |
+| `GET /api/v1/analysis/scores/distribution` | 스코어 분포 히스토그램 + 통계 (run_names 복수 지원) |
+| `GET /api/v1/analysis/latency/distribution` | 지연시간 P50/P90/P99 + 히스토그램 (LANGFUSE.md §3.2 쿼리) |
+| `GET /api/v1/analysis/cost/distribution` | 비용 분포 (LANGFUSE.md §3.2 쿼리) |
 
 ### 산출물
 - 2개 이상의 Run을 선택하여 요약/상세 비교 가능

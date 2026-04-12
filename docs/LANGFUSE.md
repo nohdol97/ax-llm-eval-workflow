@@ -268,6 +268,63 @@ ORDER BY bin_start ASC
 
 > **NOTE**: `least(..., bins-1)` 클램핑으로 score=1.0이 마지막 bin에 포함되도록 한다. bins=1이면 전체가 하나의 bin [0.0, 1.0]이 된다.
 
+#### 지연 시간 분포 (P50/P90/P99 + histogram)
+```sql
+SELECT
+    JSONExtractString(t.metadata, 'run_name') AS run_name,
+    avg(o.latency_ms) AS avg_latency,
+    quantile(0.5)(o.latency_ms) AS p50,
+    quantile(0.9)(o.latency_ms) AS p90,
+    quantile(0.99)(o.latency_ms) AS p99,
+    min(o.latency_ms) AS min_latency,
+    max(o.latency_ms) AS max_latency,
+    count(*) AS sample_count
+FROM traces t
+JOIN observations o ON t.id = o.trace_id
+WHERE t.project_id = {project_id:String}
+  AND JSONExtractString(t.metadata, 'run_name') IN ({run_names:Array(String)})
+GROUP BY run_name
+```
+
+히스토그램은 추가 쿼리로:
+```sql
+SELECT
+    run_name,
+    floor(latency_ms / bin_width) * bin_width AS bin_start,
+    count(*) AS count
+FROM (
+    SELECT
+        JSONExtractString(t.metadata, 'run_name') AS run_name,
+        o.latency_ms,
+        (max(o.latency_ms) OVER () - min(o.latency_ms) OVER ()) / {bins:UInt8} AS bin_width
+    FROM traces t
+    JOIN observations o ON t.id = o.trace_id
+    WHERE t.project_id = {project_id:String}
+      AND JSONExtractString(t.metadata, 'run_name') IN ({run_names:Array(String)})
+)
+GROUP BY run_name, bin_start
+ORDER BY run_name, bin_start ASC
+```
+
+#### 비용 분포
+```sql
+SELECT
+    JSONExtractString(t.metadata, 'run_name') AS run_name,
+    sum(o.cost_usd) AS total_cost,
+    avg(o.cost_usd) AS avg_cost,
+    quantile(0.5)(o.cost_usd) AS p50_cost,
+    quantile(0.9)(o.cost_usd) AS p90_cost,
+    quantile(0.99)(o.cost_usd) AS p99_cost,
+    count(*) AS sample_count
+FROM traces t
+JOIN observations o ON t.id = o.trace_id
+WHERE t.project_id = {project_id:String}
+  AND JSONExtractString(t.metadata, 'run_name') IN ({run_names:Array(String)})
+GROUP BY run_name
+```
+
+**쿼리 캐싱**: 5.4/5.5/5.6 분포 쿼리는 ClickHouse 집계 비용이 크므로 Redis에 5분 TTL 캐시. 캐시 키: `ax:cache:dist:{sha1(project_id+run_names+bins+score_name)}`.
+
 ### 3.3 ClickHouse 연결 설정
 
 ```
