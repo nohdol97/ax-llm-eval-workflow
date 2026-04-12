@@ -105,6 +105,51 @@ def mock_clickhouse() -> MockClickHouseClient:
 - `jwt_*`, `auth_headers_*`: `session` (변경 불필요)
 - `real_*` (infra): `session` (연결 재사용)
 
+**Fixture 격리 원칙 (테스트 간 오염 방지)**:
+- 모든 mock fixture는 `function` scope로 강제하여 상태 누출 금지. `session`/`module` scope mock 사용 금지.
+- `app` fixture는 매 테스트마다 새 FastAPI 인스턴스를 생성하고 `dependency_overrides`를 깨끗한 dict로 초기화한다. 테스트 종료 시 `app.dependency_overrides.clear()`를 자동 호출 (`yield` 후 cleanup).
+- 전역 싱글톤(예: `langfuse_client`, `redis_client` 모듈 변수)은 fixture에서 `monkeypatch.setattr`로 교체하여 테스트 간 누출 차단.
+- 환경변수 변경은 `monkeypatch.setenv` 사용 필수 (직접 `os.environ` 수정 금지).
+- `tmp_path`/`tmp_path_factory`만 파일 I/O 테스트에 허용. 절대경로 하드코딩 금지.
+- 시간 의존 테스트는 `freezegun.freeze_time` 또는 `time-machine` 사용.
+- 무작위성 의존 테스트는 `random.seed(0)`/`numpy.random.seed(0)` fixture로 고정.
+- 병렬 실행(`pytest -n auto`) 시 안전성 보장: 공유 자원(파일, 포트, Redis DB 번호)은 `worker_id`(`pytest-xdist`)로 네임스페이스 분리.
+
+**실제 인프라 cleanup 전략 (`tests/infra/`)**:
+- **Redis** (`real_redis`): 전용 DB 번호 사용 (CI: `LABS_REDIS_DB=15`, 로컬: `15`). `function` scope `redis_clean` fixture가 매 테스트 직전 `FLUSHDB` 실행. 다른 테스트가 사용하는 prod/dev DB(0~14) 접근 금지. 키 prefix는 `test:{worker_id}:{test_id}:`로 강제.
+- **PostgreSQL** (`real_postgres`): 트랜잭션 롤백 패턴 사용 — `function` scope `pg_session` fixture가 `BEGIN` → 테스트 → `ROLLBACK`으로 격리. 스키마 변경 테스트는 별도 `pg_schema` fixture에서 `CREATE SCHEMA test_{uuid}` → 테스트 → `DROP SCHEMA ... CASCADE`.
+- **ClickHouse** (`real_clickhouse`): Labs는 읽기 전용이므로 cleanup 불필요. 단, seed 데이터는 `session` scope에서 별도 테스트 DB(`labs_test`)에 1회 적재 후 세션 종료 시 `DROP DATABASE labs_test SYNC`. 테스트는 절대 prod DB(`langfuse`) 접근 금지 (환경변수로 enforce).
+- **Langfuse** (`real_langfuse`): 테스트 전용 프로젝트(`labs-test`) 사용. `function` fixture가 생성한 trace/dataset은 테스트 종료 시 `tags=["test", worker_id]`로 마킹 후 nightly cleanup 잡이 24시간 경과분 삭제.
+- 모든 cleanup 실패는 `pytest.fail`이 아닌 `warnings.warn`으로 처리하여 후속 테스트 실행을 막지 않는다 (단, CI는 `-W error::ResourceWarning`으로 게이트).
+
+**스냅샷 테스트 정책 (Frontend `vitest` + `toMatchSnapshot`, Backend `syrupy`)**:
+- 스냅샷 대상: 직렬화 가능한 안정 출력만 (UI 렌더 결과, JSON 응답 schema, 에러 응답 구조). 시간/UUID/난수 포함 출력은 금지 또는 `serializer`로 정규화.
+- 스냅샷 갱신은 **로컬에서만** `vitest -u` / `pytest --snapshot-update` 허용. CI에서는 `--ci`/`--snapshot-warn-unused` 플래그로 갱신 금지.
+- 갱신 시 PR 설명에 **갱신 이유**(의도된 변경 vs 버그)와 diff 스크린샷 첨부 필수. 리뷰어는 스냅샷 diff를 라인 단위로 확인.
+- 스냅샷 파일 크기 상한: 단일 스냅샷 200줄, 디렉토리 합계 5000줄. 초과 시 해당 테스트는 명시적 assertion으로 분해.
+- Stale 스냅샷(사용되지 않음)은 CI가 실패시킨다 (`--snapshot-warn-unused` → `--ci` 모드에서 error).
+- 보안 민감 데이터(JWT, API key, PII)는 스냅샷에 포함 금지 — pre-commit hook이 정규식으로 차단.
+
+**Flaky 테스트 정책**:
+- **정의**: 동일 커밋/환경에서 3회 실행 중 1회 이상 결과가 달라지는 테스트.
+- **격리 절차**: flaky가 감지되면 즉시 `@pytest.mark.flaky` 마킹 + GitHub Issue 자동 생성 (`flaky-test` 라벨). 7일 내 미해결 시 `@pytest.mark.skip(reason="flaky-{issue}")` 처리하고 담당자 지정.
+- **자동 재시도 금지**: `pytest-rerunfailures`로 무조건 재시도하는 것은 **원칙적으로 금지** (근본 원인 은폐). 단, 외부 네트워크 의존(`@pytest.mark.infra`) 테스트에 한해 최대 2회 재시도(`--reruns 2 --only-rerun ConnectionError`) 허용.
+- **CI 게이트**: 메인 브랜치 머지 전 동일 테스트 스위트를 3회 연속 실행(quarantine 단계)하여 flaky 신규 유입 차단.
+- **루트 원인 분류**: 시간 의존 / 순서 의존 / 동시성 / 외부 의존 / 비결정성 / 리소스 누출 — 분류별로 fix 패턴 문서(`docs/FLAKY_PLAYBOOK.md`) 참조. 수정 시 회귀 테스트로 100회 반복(`pytest --count=100`) 통과 증명.
+- **메트릭**: flaky 비율 ≥ 1% 시 신규 기능 머지 동결 (DevOps 알림).
+
+**테스트 데이터 빌더 패턴 (`factories.py` / `factories.ts`)**:
+- 모든 도메인 객체(`User`, `Project`, `Experiment`, `PromptVersion`, `DatasetItem`, `Trace`, `Score`, `EvaluationResult`)는 빌더/팩토리로 생성. 테스트 본문에서 dict literal로 직접 생성 금지.
+- Backend: `factory_boy` + `pydantic` 통합. 베이스 팩토리는 `BaseFactory`를 상속하고 `Meta.model`에 Pydantic 모델 지정. 무작위 값은 `Faker` provider로 생성하되 `Faker.seed_instance(0)`로 결정성 보장.
+- Frontend: 경량 빌더 함수(`buildExperiment(overrides)`)로 구현. `@faker-js/faker`는 `faker.seed(0)` 고정. TanStack Query mock 데이터도 동일 빌더 사용.
+- **빌더 원칙**:
+  - 빌더는 항상 valid한 객체를 반환 (domain invariant 위반 금지).
+  - `overrides` 인자로 부분 필드만 지정 가능, 나머지는 기본값.
+  - 중첩 객체는 sub-builder 호출 (`build_trace(observations=[build_observation()])`).
+  - 빌더는 외부 I/O(DB, 네트워크) 호출 금지 — 순수 객체 생성만 담당. 영속화는 별도 `persist_*` helper로 분리.
+  - 빌더 자체에 대한 단위 테스트 작성: 기본값 valid, override 정상 적용, schema 검증 통과.
+- **금지**: 테스트 간 빌더 인스턴스 공유, 빌더에 mutable class 변수 사용, 빌더 내부에서 시간/난수 직접 호출(주입받기).
+
 #### pytest 설정 (pyproject.toml)
 
 ```toml
@@ -117,6 +162,8 @@ markers = [
     "unit: 단위 테스트",
     "integration: 통합 테스트 (TestClient 사용)",
     "infra: 인프라 연결 테스트 (실제 서비스 필요)",
+    "contract: OpenAPI 컨트랙트 테스트 (schemathesis)",
+    "performance: NFR 성능 테스트 (nightly)",
     "slow: 실행 시간이 긴 테스트",
     "e2e: E2E 테스트 (Playwright, 전체 스택 필요)",
 ]
@@ -183,12 +230,17 @@ export default defineConfig({
 
 ```python
 class MockLangfuseClient:
-    """Langfuse SDK 호출을 가로채는 mock 클라이언트."""
+    """Langfuse Python SDK v3 호출을 가로채는 mock 클라이언트.
+
+    v3는 OpenTelemetry 기반으로 재설계되어 v2의 `trace()`/`generation()`/`score()`가
+    제거되었다. v3에서는 `start_as_current_observation()` 컨텍스트 매니저와
+    `update_trace()`, `create_score()`를 사용한다 (LANGFUSE.md §2.4 참조).
+    """
 
     def __init__(self):
         self.prompts: dict[str, list] = {}       # name -> [versions]
         self.datasets: dict[str, list] = {}      # name -> [items]
-        self.traces: list[dict] = []
+        self.observations: list[dict] = []       # spans/generations 기록
         self.scores: list[dict] = []
         self._connected = True
 
@@ -201,20 +253,49 @@ class MockLangfuseClient:
     def create_dataset_item(self, dataset_name: str, **kwargs):
         """데이터셋 아이템 생성 mock."""
 
-    def trace(self, **kwargs):
-        """Trace 생성 mock.
-        - trace().generation() -> MockGeneration (with .id attribute)
-        - trace().id -> str (UUID)
+    def start_as_current_observation(
+        self,
+        *,
+        name: str,
+        as_type: str = "span",        # "span" | "generation" | "event"
+        input: Any = None,
+        metadata: dict = None,
+        model: str = None,
+        model_parameters: dict = None,
+        prompt: Any = None,
+    ):
+        """v3 observation 컨텍스트 매니저 mock.
+
+        Returns a context manager that yields MockSpan (root_span 또는 nested).
+        MockSpan 주요 메서드:
+          - update(output=..., usage_details=..., cost_details=..., metadata=...)
+          - update_trace(user_id=..., session_id=..., tags=..., input=..., output=...)
+          - start_as_current_observation(...)  # nested observation
+          - score(name=..., value=..., data_type=...)
+          - trace_id -> str (OpenTelemetry trace_id)
+          - id -> str (observation id)
         """
 
-    def score(self, **kwargs):
-        """Score 기록 mock."""
+    def create_score(
+        self,
+        *,
+        name: str,
+        value: float | str,
+        trace_id: str,
+        observation_id: str = None,
+        data_type: str = "NUMERIC",
+        comment: str = None,
+    ):
+        """v3 Score 기록 mock (trace 단위로 분리된 호출)."""
 
     def get_dataset(self, name: str):
-        """데이터셋 조회 mock -> MockDataset (with .items list and .link() method)."""
+        """데이터셋 조회 mock -> MockDataset (with .items list and .run() method)."""
 
     def flush(self):
         """flush mock (no-op)."""
+
+    def auth_check(self) -> bool:
+        """v3 인증 검증 mock (SDK 초기화 시 호출)."""
 
     def simulate_connection_failure(self):
         """연결 실패 시뮬레이션."""
@@ -368,7 +449,7 @@ def real_clickhouse():
 @pytest.fixture(scope="session")
 def real_langfuse():
     """실제 Langfuse 연결.
-    LANGFUSE_HOST 환경변수에서 읽음.
+    LANGFUSE_HOST, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY 환경변수에서 읽음.
     """
 
 @pytest.fixture(scope="session")
@@ -668,14 +749,11 @@ pytest -n auto
 |---|------------|------|----------|-------------------|-----------|
 | 8 | `test_should_parse_variables_when_get_prompt_called` | `get_prompt("test-prompt")` (프롬프트에 `{{input_text}}`, `{{rules}}` 포함) | 결과에 `variables: ["input_text", "rules"]` 포함 | mock Langfuse | 변수 없는 프롬프트, 중복 변수, 중첩 중괄호 `{{{var}}}` |
 | 9 | `test_should_call_flush_when_flush_invoked` | `flush()` 호출 | Langfuse SDK의 `flush()` 메서드가 호출됨 | mock Langfuse | - |
-| 10 | `test_should_create_trace_with_correct_metadata_when_called` | `create_trace(name, metadata)` 호출 | metadata에 `source: "ax-llm-eval-workflow"` 자동 추가 | mock Langfuse | metadata가 None인 경우 |
+| 10 | `test_should_start_observation_with_correct_metadata_when_called` | `start_as_current_observation(name=..., as_type="span", metadata={...})` 호출 (v3 SDK) | 컨텍스트 진입 시 MockSpan 반환, metadata에 `source: "ax-llm-eval-workflow"` 자동 병합, 컨텍스트 종료 시 observation 자동 기록 | mock Langfuse | metadata가 None인 경우, nested `start_as_current_observation(as_type="generation")` 호출 시 parent span에 연결 |
+| 11 | `test_should_call_update_trace_when_root_span_metadata_set` | root span에서 `update_trace(user_id, session_id, tags)` 호출 | v3 trace 속성이 기록됨 (v2 `trace()` 인자가 아닌 별도 호출로 분리됨) | mock Langfuse | - |
+| 12 | `test_should_call_create_score_when_score_recorded_on_trace` | `create_score(name, value, trace_id, observation_id)` 호출 (v3) | score가 해당 trace에 귀속되어 기록됨 (v2 `langfuse.score()` API 아님) | mock Langfuse | `data_type="CATEGORICAL"`로 문자열 value 기록 |
 
-#### 2.2.4 에러 코드 테스트
-
-| # | 테스트 이름 | 입력 | 기대 출력 | 필요 fixture/mock | 엣지케이스 |
-|---|------------|------|----------|-------------------|-----------|
-| 11 | `test_should_return_CLICKHOUSE_ERROR_when_clickhouse_query_fails` | ClickHouse 쿼리 실행 중 예외 발생 | 502, `{"error": {"code": "CLICKHOUSE_ERROR"}}` | mock_clickhouse (예외 발생) | 타임아웃, 연결 실패, 잘못된 쿼리 |
-| 12 | `test_should_return_SANDBOX_VIOLATION_when_import_blocked_module` | Custom Evaluator 코드에서 비허용 모듈 import 시도 | 400, `{"error": {"code": "SANDBOX_VIOLATION"}}` | runner.py mock | `os`, `sys`, `subprocess` 각각 시도 |
+> 참고: `CLICKHOUSE_ERROR` 에러 매핑은 Phase 6 ClickHouse 쿼리 테스트(TEST_SPEC_PART2 §6.1)에서, `SANDBOX_VIOLATION`은 Custom Evaluator 샌드박스 테스트(TEST_SPEC_PART2 §5.3)에서 다룬다. 이 섹션에서는 Langfuse Client Wrapper 고유의 에러 매핑(§2.2.2)만 검증한다.
 
 ### 2.3 Redis Client 테스트
 
@@ -862,27 +940,49 @@ pytest -n auto
 | 20 | `test_should_handle_unicode_data_when_csv_contains_special_chars` | CSV에 이모지, 한자, 특수문자 포함 | 200, 데이터 정상 저장 | mock_langfuse, `jwt_user` | null 바이트 포함 데이터 |
 | 21 | `test_should_map_multiple_input_columns_when_mapping_has_array` | `input_columns: ["text", "context"]` | 200, input이 `{"text": "...", "context": "..."}` 형태로 저장 | mock_langfuse, `jwt_user` | - |
 | 22 | `test_should_return_422_when_mapping_json_invalid` | mapping 파라미터가 유효하지 않은 JSON 문자열 | 422, `VALIDATION_ERROR` | `jwt_user` | - |
+| 23 | `test_should_return_202_when_file_has_more_than_500_rows` | multipart: 501행 CSV + mapping | 202 Accepted, `{"data": {"upload_id": "uuid", "status": "processing", "stream_url": "/api/v1/datasets/upload/{upload_id}/stream"}}` (API_DESIGN §6.3 비동기 경로) | mock_langfuse, mock_redis (`ax:dataset_upload:{upload_id}` Hash 생성 확인, `owner_user_id` = JWT sub), `jwt_user` | 정확히 500행 (동기 200), 501행 (비동기 202) 경계값 |
+| 24 | `test_should_return_200_when_file_has_500_rows_or_fewer` | multipart: 500행 CSV + mapping | 200, `{"data": {"status": "completed", "items_created": 500, "upload_id": "uuid"}}` (동기 경로) | mock_langfuse, `jwt_user` | - |
+| 25 | `test_should_store_owner_user_id_in_upload_hash_when_async_upload` | 501행 CSV + `jwt_user(sub="user_001")` | Redis `ax:dataset_upload:{upload_id}` Hash에 `owner_user_id = "user_001"` 저장, TTL 3600초 | mock_redis, `jwt_user` | - |
+
+#### 3.3.3-SSE GET /api/v1/datasets/upload/{upload_id}/stream -- SSE 구독 (API_DESIGN §6.3.1)
+
+| # | 테스트 이름 | 입력 | 기대 출력 | 필요 fixture/mock | 엣지케이스 |
+|---|------------|------|----------|-------------------|-----------|
+| 26 | `test_should_stream_progress_events_when_subscribed` | `GET /api/v1/datasets/upload/{upload_id}/stream`, 진행 중 업로드 | `text/event-stream` 응답, `event: progress` + `data: {"completed": N, "total": M, "failed": K}` 수신 | mock_redis (`ax:dataset_upload:{upload_id}`), `jwt_user` (owner) | - |
+| 27 | `test_should_emit_done_event_when_upload_completes` | 업로드 완료 시점 | `event: done` + 최종 결과 페이로드 수신 후 연결 종료 | mock_redis, `jwt_user` | - |
+| 28 | `test_should_emit_error_event_when_file_level_error_occurs` | 파일 파싱 실패 | `event: error` + `{"code": "FILE_PARSE_ERROR", "message": ...}` 수신 후 종료 | mock_redis, `jwt_user` | - |
+| 29 | `test_should_return_403_when_non_owner_subscribes_to_stream` | owner가 아닌 user JWT로 SSE 구독 | 403, `{"error": {"code": "FORBIDDEN"}}` | mock_redis (`owner_user_id="user_001"`), `jwt_user(sub="user_002")` | admin은 우회 허용 → 성공 |
+| 30 | `test_should_allow_admin_to_subscribe_to_any_upload_stream` | admin JWT로 타인 upload SSE 구독 | 200 스트림 시작 | mock_redis, `jwt_admin` | - |
+| 31 | `test_should_emit_snapshot_immediately_on_reconnect` | 진행 중인 업로드에 재접속 | 현재 snapshot 즉시 1회 전송 후 live 이벤트 append | mock_redis (진행률 50%), `jwt_user` | - |
+| 32 | `test_should_send_heartbeat_comment_every_15_seconds` | 긴 업로드 구독 | 15초마다 `: heartbeat\n\n` 주석 프레임 전송 | mock_redis, `jwt_user` | 60초 무응답 시 error 이벤트 후 종료 |
+| 33 | `test_should_return_404_when_upload_id_not_found` | 존재하지 않거나 TTL 만료된 upload_id | 404, `{"error": {"code": "UPLOAD_NOT_FOUND"}}` 또는 SSE `error` 이벤트 | mock_redis (빈 상태), `jwt_user` | - |
+| 34 | `test_should_include_monotonic_id_line_on_every_event` | 정상 스트림 구독 | 각 이벤트 프레임에 단조 증가 `id: N` 라인 포함 (API_DESIGN §3 SSE 포맷) | mock_redis, `jwt_user` | id 중복/역전 금지 검증 |
+| 35 | `test_should_emit_initial_retry_directive_on_connect` | 최초 연결 | 첫 프레임에 `retry: 3000` 디렉티브 전송 | mock_redis, `jwt_user` | - |
+| 36 | `test_should_replay_events_after_last_event_id_when_reconnect_header_provided` | `Last-Event-ID: 42` 헤더로 재접속 | id > 42 이벤트부터 재전송 후 live append (API_DESIGN §3) | mock_redis (이벤트 버퍼 id 1..100), `jwt_user` | `Last-Event-ID` = 0, 미래 id(999), 비숫자 값 → snapshot fallback |
+| 37 | `test_should_fallback_to_snapshot_when_last_event_id_buffer_expired` | `Last-Event-ID` 값이 버퍼 TTL 만료됨 | snapshot 즉시 전송 후 live 이벤트 append, 경고 로그 | mock_redis (버퍼 만료), `jwt_user` | - |
+| 38 | `test_should_emit_error_and_close_when_no_client_ack_for_60_seconds` | 클라이언트 응답 없음 60초 경과 | `event: error` + `{"code": "STREAM_TIMEOUT"}` 송출 후 연결 종료 | mock_redis, `jwt_user` | - |
 
 #### 3.3.4 POST /api/v1/datasets/upload/preview -- 미리보기
 
 | # | 테스트 이름 | 입력 | 기대 출력 | 필요 fixture/mock | 엣지케이스 |
 |---|------------|------|----------|-------------------|-----------|
-| 23 | `test_should_return_preview_when_valid_file` | CSV 파일 + mapping | 200, `{"data": {"columns": [...], "preview": [5건], "total_rows": 100}}` | 없음 (파싱만, Langfuse 호출 없음) | - |
-| 24 | `test_should_return_max_5_items_when_file_has_many_rows` | 1000행 CSV | 200, `preview` 배열 길이 = 5 | 없음 | - |
-| 25 | `test_should_show_mapped_structure_when_mapping_applied` | mapping 적용 | 200, 각 preview 아이템이 `input`, `expected_output`, `metadata` 구조 | 없음 | - |
-| 26 | `test_should_return_columns_when_file_parsed` | CSV 파일 | 200, `columns` 배열에 모든 컬럼명 포함 | 없음 | - |
-| 27 | `test_should_return_400_when_preview_file_unparseable` | 잘못된 형식의 파일 | 400, `FILE_PARSE_ERROR` | 없음 | - |
-| 28 | `test_should_not_require_auth_at_same_level_when_preview` | user JWT | 200, 인증 성공 (viewer도 미리보기 가능해야 함) | `jwt_viewer` | 미리보기는 데이터 저장 없으므로 viewer 허용 검토 |
+| 39 | `test_should_return_preview_when_valid_file` | CSV 파일 + mapping | 200, `{"data": {"columns": [...], "preview": [5건], "total_rows": 100}}` | 없음 (파싱만, Langfuse 호출 없음) | - |
+| 40 | `test_should_return_max_5_items_when_file_has_many_rows` | 1000행 CSV | 200, `preview` 배열 길이 = 5 | 없음 | - |
+| 41 | `test_should_show_mapped_structure_when_mapping_applied` | mapping 적용 | 200, 각 preview 아이템이 `input`, `expected_output`, `metadata` 구조 | 없음 | - |
+| 42 | `test_should_return_columns_when_file_parsed` | CSV 파일 | 200, `columns` 배열에 모든 컬럼명 포함 | 없음 | - |
+| 43 | `test_should_return_400_when_preview_file_unparseable` | 잘못된 형식의 파일 | 400, `FILE_PARSE_ERROR` | 없음 | - |
+| 44 | `test_should_not_require_auth_at_same_level_when_preview` | user JWT | 200, 인증 성공 (viewer도 미리보기 가능해야 함) | `jwt_viewer` | 미리보기는 데이터 저장 없으므로 viewer 허용 검토 |
 
 #### 3.3.5 DELETE /api/v1/datasets/{name} -- 삭제
 
 | # | 테스트 이름 | 입력 | 기대 출력 | 필요 fixture/mock | 엣지케이스 |
 |---|------------|------|----------|-------------------|-----------|
-| 29 | `test_should_delete_dataset_when_admin_calls` | admin JWT, `DELETE /api/v1/datasets/test-ds?project_id=proj_1` | 200, 삭제 성공 | mock_langfuse, `jwt_admin` | - |
-| 30 | `test_should_return_403_when_user_deletes_dataset` | user JWT | 403 | `jwt_user` | - |
-| 31 | `test_should_return_403_when_viewer_deletes_dataset` | viewer JWT | 403 | `jwt_viewer` | - |
-| 32 | `test_should_return_404_when_deleting_nonexistent_dataset` | admin JWT, 존재하지 않는 데이터셋 이름 | 404, `DATASET_NOT_FOUND` | mock_langfuse, `jwt_admin` | - |
-| 33 | `test_should_return_422_when_project_id_missing_on_delete` | `DELETE /api/v1/datasets/test-ds` (project_id 누락) | 422 | `jwt_admin` | - |
+| 45 | `test_should_delete_dataset_when_admin_calls` | admin JWT, `DELETE /api/v1/datasets/test-ds?project_id=proj_1` | 200, 삭제 성공 | mock_langfuse, `jwt_admin` | - |
+| 46 | `test_should_return_403_when_user_deletes_dataset` | user JWT | 403 | `jwt_user` | - |
+| 47 | `test_should_return_403_when_viewer_deletes_dataset` | viewer JWT | 403 | `jwt_viewer` | - |
+| 48 | `test_should_return_404_when_deleting_nonexistent_dataset` | admin JWT, 존재하지 않는 데이터셋 이름 | 404, `DATASET_NOT_FOUND` | mock_langfuse, `jwt_admin` | - |
+| 49 | `test_should_return_422_when_project_id_missing_on_delete` | `DELETE /api/v1/datasets/test-ds` (project_id 누락) | 422 | `jwt_admin` | - |
+| 50 | `test_should_return_409_when_dataset_referenced_by_active_experiment` | admin JWT, 활성(running/paused) 실험이 참조 중인 데이터셋 삭제 | 409, `{"error": {"code": "STATE_CONFLICT"}}` | mock_langfuse, mock_redis (활성 실험이 해당 데이터셋 참조), `jwt_admin` | completed/failed/cancelled 실험만 참조 중이면 삭제 허용 |
 
 ### 3.4 모델 API
 
@@ -975,39 +1075,39 @@ pytest -n auto
 
 ### 3.9 실험 목록 조회 API 테스트
 
-**파일**: `tests/integration/test_experiments_api.py`
+**파일**: `tests/integration/test_experiments_api.py` (§3.8과 공유 — 테스트 ID는 3.8의 1-5 이후 연속 번호 6-10 사용)
 
 #### 3.9.1 GET /api/v1/experiments -- 목록 조회
 
 | # | 테스트 이름 | 입력 | 기대 출력 | 필요 fixture/mock | 엣지케이스 |
 |---|------------|------|----------|-------------------|-----------|
-| 1 | `test_should_return_paginated_list_when_experiments_exist` | `GET /api/v1/experiments?project_id=proj_1&page=1&page_size=10` | 200, `{"data": {"experiments": [...], "total": N, "page": 1}}` | mock_redis (실험 15개), `jwt_user` | - |
-| 2 | `test_should_filter_by_status_when_status_param_provided` | `GET /api/v1/experiments?project_id=proj_1&status=running` | 200, 모든 실험의 `status`가 `"running"` | mock_redis, `jwt_user` | `status=completed`, `status=failed` |
-| 3 | `test_should_return_empty_when_no_experiments_in_project` | `GET /api/v1/experiments?project_id=proj_empty` | 200, `{"data": {"experiments": [], "total": 0}}` | mock_redis (빈 상태), `jwt_user` | - |
-| 4 | `test_should_remove_expired_experiments_from_list_when_lazy_cleanup_triggered` | TTL이 만료된 실험이 Sorted Set에 남아있는 경우 | 200, 만료된 실험이 목록에서 제외되고 Sorted Set에서도 제거됨 | mock_redis (만료된 키 시뮬레이션), `jwt_user` | - |
-| 5 | `test_should_return_correct_total_count_when_page_requested` | `page=2&page_size=5`, 총 실험 13개 | 200, `total: 13`, `experiments` 배열 길이 = 5 | mock_redis, `jwt_user` | 마지막 페이지 (page=3) → 3개 반환 |
+| 6 | `test_should_return_paginated_list_when_experiments_exist` | `GET /api/v1/experiments?project_id=proj_1&page=1&page_size=10` | 200, `{"data": {"experiments": [...], "total": N, "page": 1}}` | mock_redis (실험 15개), `jwt_user` | - |
+| 7 | `test_should_filter_by_status_when_status_param_provided` | `GET /api/v1/experiments?project_id=proj_1&status=running` | 200, 모든 실험의 `status`가 `"running"` | mock_redis, `jwt_user` | `status=completed`, `status=failed` |
+| 8 | `test_should_return_empty_when_no_experiments_in_project` | `GET /api/v1/experiments?project_id=proj_empty` | 200, `{"data": {"experiments": [], "total": 0}}` | mock_redis (빈 상태), `jwt_user` | - |
+| 9 | `test_should_remove_expired_experiments_from_list_when_lazy_cleanup_triggered` | TTL이 만료된 실험이 Sorted Set에 남아있는 경우 | 200, 만료된 실험이 목록에서 제외되고 Sorted Set에서도 제거됨 | mock_redis (만료된 키 시뮬레이션), `jwt_user` | - |
+| 10 | `test_should_return_correct_total_count_when_page_requested` | `page=2&page_size=5`, 총 실험 13개 | 200, `total: 13`, `experiments` 배열 길이 = 5 | mock_redis, `jwt_user` | 마지막 페이지 (page=3) → 3개 반환 |
 
 ---
 
 ### 3.10 실험 상태 상세 조회 테스트
 
-**파일**: `tests/integration/test_experiments_api.py`
+**파일**: `tests/integration/test_experiments_api.py` (§3.8-3.9와 공유 — 테스트 ID 11-15 연속 사용)
 
 #### 3.10.1 GET /api/v1/experiments/{id} -- 상세 조회
 
 | # | 테스트 이름 | 입력 | 기대 출력 | 필요 fixture/mock | 엣지케이스 |
 |---|------------|------|----------|-------------------|-----------|
-| 1 | `test_should_return_full_experiment_state_when_experiment_exists` | `GET /api/v1/experiments/{id}`, 존재하는 실험 ID | 200, `{"data": {"id": "...", "status": "running", "progress": {"completed": 5, "total": 10}, "runs": [...], "created_at": "...", "updated_at": "..."}}` | mock_redis (실험 상태 + 진행률 + run 목록), `jwt_user` | - |
-| 2 | `test_should_return_404_when_experiment_id_not_found` | `GET /api/v1/experiments/{id}`, 존재하지 않는 실험 ID | 404, `{"detail": "Experiment not found"}` | mock_redis (빈 상태), `jwt_user` | TTL 만료된 실험 ID |
-| 3 | `test_should_return_paused_status_when_experiment_is_paused` | `GET /api/v1/experiments/{id}`, `status="paused"` 실험 | 200, `status`가 `"paused"`, `progress`에 현재까지 완료된 항목 포함 | mock_redis (`status="paused"`), `jwt_user` | - |
-| 4 | `test_should_include_run_summaries_when_runs_completed` | `GET /api/v1/experiments/{id}`, 완료된 run이 있는 실험 | 200, `runs` 배열에 각 run의 `{id, status, score, started_at, completed_at}` 포함 | mock_redis (실험 + 완료된 run 3개), `jwt_user` | run이 0개인 경우 → 빈 배열 |
-| 5 | `test_should_include_error_message_when_experiment_failed` | `GET /api/v1/experiments/{id}`, `status="failed"` 실험 | 200, `status`가 `"failed"`, `error` 필드에 실패 원인 메시지 포함 | mock_redis (`status="failed"`, `error="LiteLLM timeout"`), `jwt_user` | - |
+| 11 | `test_should_return_full_experiment_state_when_experiment_exists` | `GET /api/v1/experiments/{id}`, 존재하는 실험 ID | 200, `{"data": {"id": "...", "status": "running", "progress": {"completed": 5, "total": 10}, "runs": [...], "created_at": "...", "updated_at": "..."}}` | mock_redis (실험 상태 + 진행률 + run 목록), `jwt_user` | - |
+| 12 | `test_should_return_404_when_experiment_id_not_found` | `GET /api/v1/experiments/{id}`, 존재하지 않는 실험 ID | 404, `{"error": {"code": "EXPERIMENT_NOT_FOUND"}}` | mock_redis (빈 상태), `jwt_user` | TTL 만료된 실험 ID |
+| 13 | `test_should_return_paused_status_when_experiment_is_paused` | `GET /api/v1/experiments/{id}`, `status="paused"` 실험 | 200, `status`가 `"paused"`, `progress`에 현재까지 완료된 항목 포함 | mock_redis (`status="paused"`), `jwt_user` | - |
+| 14 | `test_should_include_run_summaries_when_runs_completed` | `GET /api/v1/experiments/{id}`, 완료된 run이 있는 실험 | 200, `runs` 배열에 각 run의 `{id, status, score, started_at, completed_at}` 포함 | mock_redis (실험 + 완료된 run 3개), `jwt_user` | run이 0개인 경우 → 빈 배열 |
+| 15 | `test_should_include_error_message_when_experiment_failed` | `GET /api/v1/experiments/{id}`, `status="failed"` 실험 | 200, `status`가 `"failed"`, `error` 필드에 실패 원인 메시지 포함 | mock_redis (`status="failed"`, `error="LiteLLM timeout"`), `jwt_user` | - |
 
 ---
 
 ### 3.11 실험 제어 API 통합 테스트
 
-**파일**: `tests/integration/test_experiments_api.py`
+**파일**: `tests/integration/test_experiments_api.py` (§3.8-3.10과 공유 — 테스트 ID 16-22 연속 사용)
 
 > Phase 4.3의 시나리오 테스트와 달리, 이 섹션은 각 제어 엔드포인트를 독립적으로 검증하는 단위 수준 API 통합 테스트이다.
 
@@ -1015,28 +1115,28 @@ pytest -n auto
 
 | # | 테스트 이름 | 입력 | 기대 출력 | 필요 fixture/mock | 엣지케이스 |
 |---|------------|------|----------|-------------------|-----------|
-| 1 | `test_should_pause_experiment_when_admin_calls_pause_endpoint` | `POST /api/v1/experiments/{id}/pause`, `jwt_admin` | 200, Redis `status = "paused"`, `updated_at` 갱신 | mock_redis (`status="running"`), `jwt_admin` | - |
-| 2 | `test_should_return_403_when_viewer_calls_pause` | `POST /api/v1/experiments/{id}/pause`, `jwt_viewer` | 403, `{"detail": "Forbidden"}` | mock_redis (`status="running"`), `jwt_viewer` | - |
-| 3 | `test_should_return_404_when_pause_nonexistent_experiment` | `POST /api/v1/experiments/{id}/pause`, 존재하지 않는 ID | 404, `{"detail": "Experiment not found"}` | mock_redis (빈 상태), `jwt_admin` | - |
+| 16 | `test_should_pause_experiment_when_admin_calls_pause_endpoint` | `POST /api/v1/experiments/{id}/pause`, `jwt_admin` | 200, Redis `status = "paused"`, `updated_at` 갱신 | mock_redis (`status="running"`), `jwt_admin` | - |
+| 17 | `test_should_return_403_when_viewer_calls_pause` | `POST /api/v1/experiments/{id}/pause`, `jwt_viewer` | 403, `{"error": {"code": "FORBIDDEN"}}` | mock_redis (`status="running"`), `jwt_viewer` | - |
+| 18 | `test_should_return_404_when_pause_nonexistent_experiment` | `POST /api/v1/experiments/{id}/pause`, 존재하지 않는 ID | 404, `{"error": {"code": "EXPERIMENT_NOT_FOUND"}}` | mock_redis (빈 상태), `jwt_admin` | - |
 
 #### 3.11.2 POST /api/v1/experiments/{id}/resume
 
 | # | 테스트 이름 | 입력 | 기대 출력 | 필요 fixture/mock | 엣지케이스 |
 |---|------------|------|----------|-------------------|-----------|
-| 1 | `test_should_resume_experiment_when_admin_calls_resume_endpoint` | `POST /api/v1/experiments/{id}/resume`, `jwt_admin` | 200, Redis `status = "running"`, `updated_at` 갱신 | mock_redis (`status="paused"`), `jwt_admin` | - |
+| 19 | `test_should_resume_experiment_when_admin_calls_resume_endpoint` | `POST /api/v1/experiments/{id}/resume`, `jwt_admin` | 200, Redis `status = "running"`, `updated_at` 갱신 | mock_redis (`status="paused"`), `jwt_admin` | - |
 
 #### 3.11.3 POST /api/v1/experiments/{id}/cancel
 
 | # | 테스트 이름 | 입력 | 기대 출력 | 필요 fixture/mock | 엣지케이스 |
 |---|------------|------|----------|-------------------|-----------|
-| 1 | `test_should_cancel_experiment_when_user_calls_cancel_endpoint` | `POST /api/v1/experiments/{id}/cancel`, `jwt_user` | 200, Redis `status = "cancelled"`, `completed_at` 기록, TTL 3600초로 단축 | mock_redis (`status="running"`), `jwt_user` | - |
+| 20 | `test_should_cancel_experiment_when_user_calls_cancel_endpoint` | `POST /api/v1/experiments/{id}/cancel`, `jwt_user` | 200, Redis `status = "cancelled"`, `completed_at` 기록, TTL 3600초로 단축 | mock_redis (`status="running"`), `jwt_user` | - |
 
 #### 3.11.4 POST /api/v1/experiments/{id}/retry-failed
 
 | # | 테스트 이름 | 입력 | 기대 출력 | 필요 fixture/mock | 엣지케이스 |
 |---|------------|------|----------|-------------------|-----------|
-| 1 | `test_should_retry_failed_items_when_called_on_completed_experiment` | `POST /api/v1/experiments/{id}/retry-failed`, `jwt_user` | 200, Redis `status = "running"`, `failed_items`만 재실행 대상, TTL 86400초로 재설정 | mock_redis (`status="completed"`, `failed_items=3`), `jwt_user` | - |
-| 2 | `test_should_return_409_when_retry_on_experiment_with_zero_failures` | `POST /api/v1/experiments/{id}/retry-failed`, `failed_items=0` | 409, `{"detail": "No failed items to retry"}` | mock_redis (`status="completed"`, `failed_items=0`), `jwt_user` | - |
+| 21 | `test_should_retry_failed_items_when_called_on_completed_experiment` | `POST /api/v1/experiments/{id}/retry-failed`, `jwt_user` | 200, Redis `status = "running"`, `failed_items`만 재실행 대상, TTL 86400초로 재설정 | mock_redis (`status="completed"`, `failed_items=3`), `jwt_user` | - |
+| 22 | `test_should_return_409_when_retry_on_experiment_with_zero_failures` | `POST /api/v1/experiments/{id}/retry-failed`, `failed_items=0` | 409, `{"error": {"code": "STATE_CONFLICT", "message": "재시도할 실패 아이템이 없습니다"}}` | mock_redis (`status="completed"`, `failed_items=0`), `jwt_user` | - |
 
 ---
 
@@ -1053,6 +1153,191 @@ pytest -n auto
 | 3 | `test_should_return_502_CLICKHOUSE_ERROR_when_clickhouse_unreachable` | 분석 비교 시 ClickHouse 연결 불가 → 502 `CLICKHOUSE_ERROR` |
 | 4 | `test_should_return_422_when_project_id_missing_on_protected_endpoints` | 대표 3개 엔드포인트에 `project_id` 누락 → 422 |
 | 5 | `test_should_return_413_when_file_too_large_on_preview_endpoint` | preview 엔드포인트에 제한 초과 파일 업로드 → 413 |
+
+---
+
+### 3.13 Idempotency-Key 테스트 (API_DESIGN §3)
+
+**파일**: `tests/integration/test_idempotency.py`
+
+> 대상 엔드포인트: `POST /api/v1/experiments`, `POST /api/v1/tests/single`, `POST /api/v1/datasets/upload`, `POST /api/v1/datasets/from-items`, `POST /api/v1/evaluators/submissions`. 키는 `ax:idem:{user_id}:{key}` (TTL 24h)에 캐싱된다.
+
+| # | 테스트 이름 | 입력 | 기대 출력 | 필요 fixture/mock | 엣지케이스 |
+|---|------------|------|----------|-------------------|-----------|
+| 1 | `test_should_cache_response_when_first_request_with_idempotency_key` | `POST /experiments` + `Idempotency-Key: <uuid4>`, `jwt_user(sub="user_001")` | 201 생성. Redis `ax:idem:user_001:<uuid4>` Hash 생성 (request_hash, response_body, status_code, TTL=86400) | mock_redis, mock_langfuse, `jwt_user` | - |
+| 2 | `test_should_return_cached_response_when_duplicate_key_and_same_body` | 동일 key + 동일 body 재요청 | 최초 응답(201 + body) 그대로 반환. 실제 생성 로직 미호출 (mock spy) | mock_redis (Hash 존재), mock_langfuse (spy) | - |
+| 3 | `test_should_return_409_IDEMPOTENCY_CONFLICT_when_same_key_different_body` | 동일 key + 다른 body 재요청 | 409, `{"error": {"code": "IDEMPOTENCY_CONFLICT"}}` | mock_redis (request_hash 충돌) | body 일부만 변경(공백, 순서) 정규화 후에도 충돌 |
+| 4 | `test_should_isolate_keys_per_user_when_same_key_used_by_different_users` | user_001과 user_002가 동일 key로 요청 | 각각 독립 처리 (서로 캐시 간섭 없음) | mock_redis, `jwt_user(sub="user_001")`, `jwt_user(sub="user_002")` | - |
+| 5 | `test_should_accept_request_normally_when_idempotency_key_absent` | `Idempotency-Key` 헤더 누락 | 정상 처리. Redis `ax:idem:*` 키 미생성 | mock_redis, mock_langfuse | - |
+| 6 | `test_should_return_400_when_idempotency_key_exceeds_128_chars` | 129자 키 | 400, `VALIDATION_ERROR` | `jwt_user` | 0자(빈 문자열), 공백 키 |
+| 7 | `test_should_apply_idempotency_on_tests_single_endpoint` | `POST /tests/single` + key 중복 | 최초 LLM 응답 캐싱 후 재사용 (LLM 미호출) | mock_litellm (spy), mock_redis, `jwt_user` | 스트리밍 엔드포인트 제외 확인 |
+| 8 | `test_should_apply_idempotency_on_dataset_upload_endpoint` | `POST /datasets/upload` + key 중복 | upload_id 재사용, Langfuse 재업로드 없음 | mock_langfuse (spy), mock_redis, `jwt_user` | - |
+| 9 | `test_should_apply_idempotency_on_datasets_from_items_endpoint` | `POST /datasets/from-items` + key 중복 | 최초 결과 반환, 중복 생성 없음 | mock_langfuse (spy), mock_redis, `jwt_user` | - |
+| 10 | `test_should_apply_idempotency_on_evaluator_submissions_endpoint` | `POST /evaluators/submissions` + key 중복 | submission_id 재사용 | mock_redis (spy), `jwt_user` | - |
+| 11 | `test_should_expire_idempotency_cache_after_24h_ttl` | TTL 86400초 경과 후 동일 key 재요청 | 새 요청으로 처리 (캐시 만료) | mock_redis (TTL 만료 시뮬레이션), `jwt_user` | - |
+| 12 | `test_should_not_cache_response_when_request_fails_with_5xx` | 최초 요청이 502 LLM_ERROR | 키 미캐싱 → 동일 key 재요청 시 재시도 가능 | mock_litellm (실패), mock_redis, `jwt_user` | 4xx는 캐싱 (정책 검증) |
+| 13 | `test_should_cache_4xx_validation_response_when_configured` | 최초 요청이 422 VALIDATION_ERROR | 정책에 따라 캐싱, 동일 요청 시 동일 422 반환 | mock_redis, `jwt_user` | - |
+| 14 | `test_should_normalize_request_hash_when_comparing_bodies` | JSON 필드 순서만 다른 동일 요청 | 동일 요청으로 간주, 캐시 히트 | mock_redis, `jwt_user` | 공백/개행만 다른 경우 |
+
+---
+
+### 3.14 NFR 성능 테스트 (FEATURES §12.1)
+
+**파일**: `tests/performance/test_nfr_performance.py`
+
+> 마커 `@pytest.mark.performance`. CI에서는 nightly 잡으로 실행. FEATURES.md §12.1의 SLA를 자동 검증한다.
+
+| # | 테스트 이름 | 입력 | 기대 출력 | 필요 fixture/mock | 엣지케이스 |
+|---|------------|------|----------|-------------------|-----------|
+| 1 | `test_should_emit_first_token_within_1500ms_p95_on_single_test_stream` | `POST /api/v1/tests/single` (streaming) 100회 반복 측정 | 첫 SSE `token` 이벤트 수신까지 p95 < 1500ms, p99 < 2500ms | mock_litellm (실제 토큰 지연 시뮬레이션 50~200ms), `jwt_user` | cold start 첫 호출 제외, 워밍업 10회 |
+| 2 | `test_should_not_block_event_loop_when_streaming_first_token` | 스트리밍 중 다른 동시 요청 | 다른 요청 응답 지연 < 100ms (비동기 처리 확인) | mock_litellm, `jwt_user` | 10개 동시 스트림 |
+| 3 | `test_should_complete_batch_experiment_within_10min_p95_for_300_runs` | 100 아이템 × 3 모델 배치 실험 20회 측정 | 전체 완료 시간 p95 < 600s (10분) | mock_litellm (실제 지연 시뮬레이션), mock_redis, `jwt_user` | 실패율 5% 포함 시 재시도 경로 |
+| 4 | `test_should_load_comparison_page_api_within_2s_p95` | `GET /api/v1/experiments/{id}/compare` 50회 반복 | p95 < 2000ms (ClickHouse 쿼리 포함) | mock_clickhouse (현실적 지연), mock_redis, `jwt_user` | 10K row 결과 집계 |
+| 5 | `test_should_execute_custom_evaluator_single_run_within_5s_p95` | 빌트인 샌드박스에서 Custom Evaluator 단건 실행 100회 | p95 < 5000ms, 타임아웃 5s 강제 | Docker sandbox fixture, `jwt_admin` | CPU 바운드 코드, 무한 루프(타임아웃 발화) |
+| 6 | `test_should_timeout_and_return_408_when_custom_evaluator_exceeds_5s` | 6초 sleep 포함 evaluator | 408 또는 `EVALUATOR_TIMEOUT`, 프로세스 kill 확인 | Docker sandbox, `jwt_admin` | - |
+| 7 | `test_should_queue_additional_experiments_when_concurrent_limit_exceeded` | 워크스페이스에 이미 5개 running 상태, 6번째 실험 생성 | 6번째는 `status="queued"`로 대기, 5번째 중 하나 종료 시 자동 승격 | mock_redis (active 5), `jwt_user` | - |
+| 8 | `test_should_return_429_when_concurrent_experiment_quota_hard_limit` | 하드 리밋 초과 시 | 429, `{"error": {"code": "RATE_LIMITED"}}` | mock_redis, `jwt_user` | - |
+| 9 | `test_should_maintain_sse_heartbeat_under_load_when_100_concurrent_streams` | 100개 동시 SSE 구독 | 모든 연결에서 15초 heartbeat 유지, 드롭률 < 1% | mock_redis, 다수 `jwt_user` | - |
+| 10 | `test_should_report_performance_regression_when_baseline_exceeded` | 직전 baseline 대비 p95 지연 > +20% | 성능 리그레션 알림 (CI fail) | baseline JSON fixture | - |
+
+---
+
+### 3.15 Evaluator Governance 권한 매트릭스 (FEATURES §9.1)
+
+> 상세 테스트는 `TEST_SPEC_PART2.md` Evaluator Submissions 섹션 참조. 본 문서에서는 FEATURES.md §9.1 권한 매트릭스(viewer/user/admin × 검증/제출/자기 조회/승인-반려)의 모든 셀이 TEST_SPEC_PART2에서 최소 1회 커버되는지 추적한다.
+
+**커버리지 체크리스트**:
+
+| 역할 | 검증 실행 | 제출 | 자기 제출 조회 | 전체 승인/반려 |
+|------|---------|------|-------------|-------------|
+| viewer | `test_should_return_403_when_viewer_calls_validate` | `test_should_return_403_when_viewer_submits` | `test_should_return_403_when_viewer_lists_submissions` | `test_should_return_403_when_viewer_approves` |
+| user | `test_should_validate_code_when_user_calls_validate` | `test_should_create_submission_when_user_submits_code` | `test_should_allow_user_to_view_own_submission_detail` | `test_should_return_403_when_user_approves` |
+| admin | (user 케이스 상속) | `test_should_auto_approve_submission_when_admin_submits` | `test_should_return_all_submissions_when_admin_lists` | `test_should_approve_submission_when_admin_approves`, `test_should_reject_submission_when_admin_rejects` |
+
+> 각 셀에 해당하는 테스트가 TEST_SPEC_PART2에 존재하지 않으면 추가 필요. 본 테이블은 완료 체크리스트로만 사용한다.
+
+---
+
+### 3.16 OpenAPI 컨트랙트 테스트 (API_DESIGN 전 영역)
+
+**파일**: `tests/contract/test_openapi_contract.py`
+
+> FastAPI가 자동 생성하는 `/openapi.json`이 `docs/API_DESIGN.md`에 명세된 모든 엔드포인트/스키마와 일치하는지 검증한다. `schemathesis`로 fuzz 기반 컨트랙트 테스트를 수행하여 응답이 스키마와 어긋날 경우 실패시킨다. 마커 `@pytest.mark.contract`. CI에서 unit/integration과 동등하게 실행된다.
+
+| # | 테스트 이름 | 입력 | 기대 출력 | 필요 fixture/mock | 엣지케이스 |
+|---|------------|------|----------|-------------------|-----------|
+| 1 | `test_should_export_openapi_schema_with_all_documented_endpoints` | `GET /openapi.json` | `paths`에 API_DESIGN.md §4~§13 모든 경로(prompts, datasets, models, experiments, tests, search, evaluators, notifications, analytics) 포함 | `client` | API_DESIGN의 경로/메서드 목록을 fixture(`api_design_routes.json`)로 추출 후 set 비교, 누락 시 fail |
+| 2 | `test_should_define_error_envelope_schema_matching_api_design_section_2` | OpenAPI components에서 `ErrorResponse` 스키마 조회 | `{error: {code, message, details?, request_id?}}` 구조 일치, `code` enum이 API_DESIGN §2.2 에러 코드 표(AUTH_REQUIRED, FORBIDDEN, NOT_FOUND, VALIDATION_ERROR, IDEMPOTENCY_CONFLICT, RATE_LIMITED, LANGFUSE_ERROR, CLICKHOUSE_ERROR, LLM_ERROR, EVALUATOR_TIMEOUT 등) 전체 포함 | `client` | 신규 코드 추가 시 enum 동기화 누락 검출 |
+| 3 | `test_should_validate_all_responses_against_schema_when_schemathesis_fuzz` | `schemathesis.from_asgi("/openapi.json", app).parametrize()` 전체 엔드포인트 fuzz | 모든 응답이 자체 스키마를 만족 (status code, content-type, body shape) | `app`, mock_langfuse, mock_redis, mock_clickhouse, mock_litellm, `jwt_admin` | 5xx 응답도 ErrorResponse 스키마 준수 |
+| 4 | `test_should_require_security_scheme_on_all_protected_endpoints` | OpenAPI `security` 항목 검사 | `/api/v1/health`를 제외한 모든 경로에 `bearerAuth` (JWT) 보안 요구 명시 | `client` | 신규 엔드포인트가 보안 누락 시 fail |
+| 5 | `test_should_match_request_body_schema_for_create_experiment` | API_DESIGN §6.1의 `CreateExperimentRequest` JSON Schema vs OpenAPI components | 필드명/필수성/타입 완전 일치 (`prompt_name`, `prompt_version`, `dataset_name`, `models[]`, `evaluator_ids[]`, `concurrency`, `timeout_sec` 등) | API_DESIGN에서 추출한 schema fixture | 추가 필드는 backward-compatible 여부 표시 |
+| 6 | `test_should_define_idempotency_key_header_on_all_documented_endpoints` | API_DESIGN §3 Idempotency 적용 엔드포인트 5종 OpenAPI parameters | `Idempotency-Key` header parameter 정의 (string, maxLength 128) | `client` | 누락 시 fail |
+| 7 | `test_should_describe_pagination_params_consistently` | 목록 엔드포인트(prompts, datasets, experiments, notifications) | `cursor`, `limit`(기본 20, max 100) 파라미터 동일 정의 | `client` | - |
+| 8 | `test_should_freeze_openapi_schema_via_snapshot` | `/openapi.json` 직렬화 결과 | `syrupy` 스냅샷과 일치 (의도된 변경만 PR로 갱신) | `client`, syrupy | 비결정적 필드(version, generated_at) 제거 후 비교 |
+| 9 | `test_should_reject_request_when_unknown_field_in_strict_mode` | `POST /experiments`에 OpenAPI에 없는 필드 포함 | 422 `VALIDATION_ERROR` (Pydantic `extra="forbid"`) | `client`, `jwt_user` | - |
+| 10 | `test_should_match_response_schema_for_sse_event_documents` | API_DESIGN §6.4 SSE 이벤트 타입(`progress`, `result`, `error`, `heartbeat`)별 JSON 페이로드 | 각 이벤트 페이로드가 components.schemas의 대응 모델을 만족 | mock SSE producer | 알 수 없는 이벤트 타입은 클라이언트가 무시하도록 명세 검증 |
+| 11 | `test_should_wrap_http_exception_with_error_envelope_via_global_handler` | 임의 라우터에서 `raise HTTPException(404, detail="missing")` | 응답 body가 `{"error": {"code": "NOT_FOUND", "message": "missing", "request_id": "<uuid>"}}` 형태, `Content-Type: application/json` | `client`, `jwt_user` | `HTTPException(409)` → `STATE_CONFLICT`/`IDEMPOTENCY_CONFLICT` 매핑, `detail`이 dict인 경우도 envelope로 정규화 |
+| 12 | `test_should_wrap_request_validation_error_with_error_envelope` | 잘못된 JSON body로 `POST /experiments` 호출 | 422, `{"error": {"code": "VALIDATION_ERROR", "message": ..., "details": [{"loc": [...], "msg": ..., "type": ...}], "request_id": "<uuid>"}}` | `client`, `jwt_user` | FastAPI 기본 응답 포맷이 노출되지 않아야 함 (`detail` 키 없음) |
+| 13 | `test_should_wrap_unhandled_exception_with_500_error_envelope` | 라우터 내부에서 `raise RuntimeError("boom")` (테스트 전용 라우터/monkeypatch) | 500, `{"error": {"code": "INTERNAL_ERROR", "message": "Internal Server Error", "request_id": "<uuid>"}}`. 예외 traceback은 응답에 노출 금지, OBSERVABILITY 로그에만 기록 | `client`, `jwt_user`, log capture | 민감 정보 redaction 검증, `request_id`는 응답 header `X-Request-ID`와 일치 |
+| 14 | `test_should_register_exception_handlers_on_app_startup` | `app.exception_handlers` 검사 | `HTTPException`, `RequestValidationError`, `Exception` 3종 핸들러 모두 등록되어 있음 | `app` | 누락 시 즉시 fail (회귀 방지) |
+| 15 | `test_should_match_response_schema_for_get_evaluators_score_configs` | `GET /api/v1/evaluators/score-configs` (admin) | 200, 응답 body가 OpenAPI components의 `ScoreConfigList` 스키마와 완전 일치 (`items[].name`, `data_type`(NUMERIC/CATEGORICAL/BOOLEAN), `min`/`max`/`categories`, `description`, `created_at`), `paths`에 본 엔드포인트 등록 + `bearerAuth` 보안 요구 | `client`, `jwt_admin`, mock score_registry (NUMERIC+CATEGORICAL+BOOLEAN 각 1건 시드) | 빈 결과 → `items: []`, viewer/user → 403, NUMERIC 타입에 `categories` 필드 부재 검증, schemathesis fuzz로 임의 query에 대한 응답 스키마 일치 |
+| 16 | `test_should_match_total_cost_usd_when_summing_experiment_results` | 실험 5건(각 LiteLLM usage 응답 mock) 종료 후 `GET /experiments/{id}/results` 응답의 `total_cost_usd`와 개별 result `cost_usd` 합계 비교 | `total_cost_usd == sum(results[].cost_usd)` (decimal 비교, 절대오차 ≤ 1e-9), Redis `HINCRBYFLOAT total_cost_usd` 누적값과도 일치, ClickHouse 집계 쿼리 결과와 3-way 일치 | `client`, `jwt_user`, mock_litellm (usage fixture), mock_redis, mock_clickhouse | 부동소수점 누적 오차(0.1+0.2 등 15건), 일부 result 실패(`cost_usd=null`)는 합계에서 제외, 통화 단위는 USD 고정, 음수/NaN 발생 시 즉시 fail |
+
+---
+
+### 3.17 Notification Inbox 테스트 (API_DESIGN §13)
+
+**파일**: `tests/integration/test_notifications.py`
+
+> §13 Notification Inbox는 본 시스템의 유일한 서버→사용자 알림 채널이다(외부 웹훅 없음, API_DESIGN §1 단언). Redis `ax:notification:{user_id}:*` (TTL 30일) 저장. 본 절은 inbox CRUD + 발송 트리거를 검증한다.
+
+| # | 테스트 이름 | 입력 | 기대 출력 | 필요 fixture/mock | 엣지케이스 |
+|---|------------|------|----------|-------------------|-----------|
+| 1 | `test_should_return_only_own_notifications_when_user_lists_inbox` | `GET /api/v1/notifications`, `jwt_user(sub="user_001")`, Redis에 user_001/user_002 알림 혼재 | 200, user_001 알림만 반환. user_002 알림 미노출 | mock_redis (사전 시드), `jwt_user` | 빈 inbox → `notifications: []`, `unread_count: 0` |
+| 2 | `test_should_paginate_notifications_with_cursor_and_limit` | `?limit=20&cursor=<id>` | 최대 20건, `next_cursor` 포함 | mock_redis (50건 시드), `jwt_user` | `limit=0` → 422, `limit=101` → 422 |
+| 3 | `test_should_filter_notifications_by_unread_when_query_param_set` | `?unread=true` | `read_at IS NULL` 알림만 | mock_redis, `jwt_user` | - |
+| 4 | `test_should_mark_notification_read_when_patch_called` | `PATCH /api/v1/notifications/{id}/read`, 본인 알림 | 200, Redis Hash `read_at` 갱신, `unread_count` 감소 | mock_redis, `jwt_user` | 이미 읽음 상태 재호출 → 멱등(200) |
+| 5 | `test_should_return_404_when_notification_id_not_found` | 존재하지 않는 id | 404 `NOT_FOUND` | mock_redis, `jwt_user` | - |
+| 6 | `test_should_return_404_when_marking_other_user_notification_as_read` | user_002 알림 id를 user_001이 PATCH | 404 (정보 노출 회피, API_DESIGN §1 예외 정책) | mock_redis, `jwt_user` | admin은 동일하게 403이 아닌 404 |
+| 7 | `test_should_mark_all_as_read_when_post_mark_all_read` | `POST /api/v1/notifications/mark-all-read` | 200, 본인 미읽음 전체 `read_at` 일괄 갱신, `updated_count` 반환 | mock_redis (10건 unread), `jwt_user` | 0건 → 200, `updated_count=0` |
+| 8 | `test_should_return_401_when_no_jwt_on_notifications_endpoint` | JWT 없이 호출 | 401 `AUTH_REQUIRED` | 없음 | - |
+| 9 | `test_should_create_notification_when_evaluator_submission_approved` | admin이 evaluator 제출 승인 (`POST /evaluators/submissions/{id}/approve`) | 제출자 inbox에 `type="evaluator_submission_approved"` 알림 1건 생성, `payload`에 submission_id 포함 | mock_redis (notification spy), `jwt_admin` | 알림 발송 실패 시 승인 트랜잭션은 성공, 경고 로그(에러 전파 금지) |
+| 10 | `test_should_create_notification_when_experiment_completed` | 배치 실험 종료 이벤트 | 실험 owner inbox에 `type="experiment_completed"` 알림, `status`(success/partial_failure) 포함 | mock_redis, mock_experiment_runner | owner가 viewer 권한으로 강등된 경우에도 알림 생성 |
+| 11 | `test_should_create_budget_warning_notification_when_80pct_usage_reached` | 프로젝트 비용 80% 도달 이벤트 (API_DESIGN §12) | admin들 inbox에 `type="budget_warning"` 알림 broadcast | mock_redis, `jwt_admin` | 100% 도달 시 `budget_exceeded` 별도 타입 |
+| 12 | `test_should_apply_ttl_30days_when_creating_notification` | 신규 알림 생성 | Redis 키 TTL ≈ 2592000초 (±60초) | mock_redis (TTL inspect), freezegun | TTL 만료 시뮬레이션 → 자동 소멸 |
+| 13 | `test_should_not_emit_outbound_webhook_when_notification_created` | 알림 생성 경로 전체 | 외부 HTTP 클라이언트(requests/httpx) 호출 0회 (API_DESIGN §1: 외부 아웃바운드 웹훅 미제공) | httpx mock spy | Slack/Telegram 모듈 import 되지 않음 검증 |
+| 14 | `test_should_stream_new_notifications_via_sse_when_subscribed` | `GET /api/v1/notifications/stream` (SSE) | 새 알림 생성 즉시 `data: {...}` 이벤트 수신, heartbeat 15초 | mock_redis pubsub, `jwt_user`, freezegun (heartbeat 결정성, §3.19) | 연결 종료 시 cleanup |
+
+---
+
+### 3.18 감사 로그(Audit Log) 테스트 (FEATURES §11 / OBSERVABILITY)
+
+**파일**: `tests/integration/test_audit_log.py`
+
+> 권한 변경, 데이터 변형, 승인/반려, 삭제 등 민감 액션은 감사 로그에 기록되어야 한다. 저장소는 `audit_log` PostgreSQL 테이블(불변, append-only). 본 절은 액션별 기록 정확성과 무결성을 검증한다. 본 절의 모든 테스트는 §3.19 매트릭스에 따라 `freezegun.freeze_time`을 의무 적용한다 (`created_at` 결정성 + 체인 해시 재현). 마커 `@pytest.mark.integration`.
+
+| # | 테스트 이름 | 입력 | 기대 출력 | 필요 fixture/mock | 엣지케이스 |
+|---|------------|------|----------|-------------------|-----------|
+| 1 | `test_should_record_audit_when_admin_promotes_prompt_label` | `PATCH /prompts/{name}/versions/{v}/labels` (admin) | `audit_log` 1행 삽입: `actor_id`, `actor_role="admin"`, `action="prompt.label.promote"`, `resource_type="prompt"`, `resource_id`, `before`(이전 label), `after`(신규 label), `request_id`, `created_at`(UTC), `ip` | real_postgres (`pg_session`), `jwt_admin` | label 동일값으로 promote → 변경 없음, audit 미기록 |
+| 2 | `test_should_record_audit_when_dataset_deleted` | `DELETE /datasets/{name}` (admin) | `action="dataset.delete"`, `before`에 dataset 메타 snapshot 포함 | real_postgres, `jwt_admin` | dry-run 모드에서는 미기록 |
+| 3 | `test_should_record_audit_when_experiment_canceled` | `POST /experiments/{id}/cancel` | `action="experiment.cancel"`, `reason` 포함 | real_postgres, `jwt_user` (owner) | admin이 타인 실험 강제 취소 시 `actor_role="admin"`, `target_owner_id` 기록 |
+| 4 | `test_should_record_audit_when_evaluator_submission_approved_or_rejected` | 승인/반려 각 1회 | 2행 삽입, `action="evaluator.submission.approve"` / `evaluator.submission.reject`, `rejection_reason` 포함 | real_postgres, `jwt_admin` | - |
+| 5 | `test_should_record_audit_when_authentication_fails_with_invalid_jwt` | 만료 JWT로 보호 엔드포인트 호출 | `action="auth.failure"`, `actor_id="anonymous"`, `details.reason="jwt_expired"`, IP 기록 | real_postgres | 미들웨어에서 비동기 기록(요청 처리 차단 금지) |
+| 6 | `test_should_be_append_only_when_attempting_to_update_audit_row` | DB 직접 `UPDATE audit_log SET ...` 시도 | 트리거/권한으로 거부 (`READ_ONLY_VIOLATION` 또는 권한 오류) | real_postgres (audit 전용 role) | DELETE도 동일하게 거부 |
+| 7 | `test_should_compute_chain_hash_for_tamper_evidence` | 연속 3건 기록 후 각 행의 `hash` 컬럼 검증 | `hash_n = sha256(hash_{n-1} || row_payload)`. 임의 행 변조 시 체인 검증 실패 | real_postgres | 첫 행은 `hash_0 = sha256(genesis)` |
+| 8 | `test_should_redact_sensitive_fields_when_recording_audit` | 프롬프트 변경 audit | `before`/`after`에 raw 프롬프트 텍스트 미포함 (해시만), API key/JWT 절대 미기록 | real_postgres | OBSERVABILITY 로그 정책과 일관 |
+| 9 | `test_should_query_audit_by_actor_and_resource_when_admin_calls_endpoint` | `GET /api/v1/audit?actor_id=&resource_type=&from=&to=` (admin) | 200, 필터링된 결과, cursor 페이지네이션 | real_postgres (시드), `jwt_admin` | viewer/user → 403 |
+| 10 | `test_should_return_403_when_non_admin_queries_audit_log` | user/viewer가 `GET /api/v1/audit` | 403 `FORBIDDEN` | `jwt_user`, `jwt_viewer` | - |
+| 11 | `test_should_record_audit_with_request_id_for_correlation` | 임의 admin 액션 | `request_id` 컬럼이 응답 header `X-Request-ID`와 일치 | real_postgres, `jwt_admin` | OBSERVABILITY 추적 ID 일관성 |
+| 12 | `test_should_record_audit_when_role_change_event_received` | 외부 Auth 서비스로부터 role 변경 webhook 수신 (있다면) | `action="user.role.change"` 기록 | real_postgres | 본 시스템이 role을 변경하지 않더라도 캐시 invalidate 시점 기록 |
+
+---
+
+### 3.18a 비즈니스 메트릭 발생 검증 & score_registry 부팅 등록
+
+**파일**: `tests/unit/test_business_metrics.py`, `tests/unit/test_score_registry_bootstrap.py`
+
+> OBSERVABILITY/EVALUATION 문서에 정의된 비즈니스 메트릭(WVPI, evaluator_approval_duration, regression_detection 등)이 실제 코드 경로에서 누락 없이 emit 되는지, 그리고 score_registry가 부팅 시 idempotent하게 등록되는지를 강제한다.
+
+| # | 테스트 이름 | 시나리오 | 기대 결과 | 의존성 | 비고 |
+|---|------------|---------|----------|--------|------|
+| 1 | `test_should_emit_wvpi_metric_when_experiment_completed` | 실험 완료 콜백 호출 | `labs_wvpi{experiment_id,project_id}` Histogram observe 1회, 0~1 범위 | mock prometheus registry | WVPI = weighted value-per-input |
+| 2 | `test_should_not_emit_wvpi_when_experiment_failed` | 실험 실패 종료 | WVPI 미발생, `labs_experiment_failed_total` +1 | mock registry | 실패는 별도 카운터 |
+| 3 | `test_should_emit_evaluator_approval_duration_when_admin_approves` | 제출 → 승인 시간차 측정 | `labs_evaluator_approval_duration_seconds` Histogram observe, label `decision="approve"` | freeze_time, real_postgres | 거부 시 `decision="reject"` |
+| 4 | `test_should_emit_regression_detection_when_baseline_diff_exceeds_threshold` | nightly baseline 비교 | `labs_regression_detected_total{metric,severity}` +1, severity ∈ {minor,major,critical} | mock baseline store | threshold 미달 시 미발생 |
+| 5 | `test_should_emit_regression_detection_zero_when_within_threshold` | 차이 < threshold | 카운터 미증가, `labs_regression_check_total{result="pass"}` +1 | - | false-negative 방지 |
+| 6 | `test_should_register_all_score_definitions_on_app_startup` | FastAPI lifespan 시작 | score_registry에 정의된 모든 score name이 Langfuse에 등록 (POST `/api/public/score-configs`) | mock langfuse client | 등록 호출 수 = 정의 수 |
+| 7 | `test_should_be_idempotent_when_score_registry_bootstrap_runs_twice` | lifespan 2회 실행 (재시작 시뮬레이션) | 동일 score 재등록 시도 시 409/이미존재 응답을 swallow, 예외 미발생, 최종 등록 수 불변 | mock langfuse | hot reload 안전성 |
+| 8 | `test_should_skip_registration_when_score_definition_unchanged` | 동일 schema hash | API 호출 생략 (캐시 적중), `labs_score_registry_skipped_total` +1 | mock | 부팅 시간 단축 |
+| 9 | `test_should_update_score_definition_when_schema_hash_changed` | data_type/range 변경 | `PATCH` 호출 발생, audit log `action="score.definition.update"` 기록 | real_postgres | 마이그레이션 안전 |
+| 10 | `test_should_fail_fast_when_score_registry_bootstrap_fails_critical` | Langfuse 503 응답 | lifespan 예외 전파, 앱 기동 중단, `/healthz` ready=false | mock | non-critical은 warning만 |
+| 11 | `test_should_emit_business_metrics_with_required_labels` | 위 메트릭 전수 점검 | 각 메트릭이 OBSERVABILITY.md에 정의된 필수 label 키 모두 보유 | meta test (registry introspection) | label 누락 즉시 실패 |
+
+---
+
+### 3.19 시간 의존 테스트 (freezegun 적용 범위)
+
+**파일**: `tests/unit/test_time_dependent.py` 외 분산 (본 절은 적용 매트릭스)
+
+> §0.1 fixture 정책에서 `freezegun.freeze_time` 사용을 의무화했다. 본 절은 어떤 테스트들이 시간 고정을 반드시 사용해야 하는지 매트릭스로 정의하여, freezegun 누락으로 인한 flaky를 방지한다. 모든 시간 비교는 UTC 기준, 시간대 변환은 `zoneinfo`를 사용한다.
+
+| 영역 | 대상 테스트 | 시간 고정 이유 | 사용 기법 |
+|------|-----------|-------------|----------|
+| JWT 만료 | `test_should_return_401_when_jwt_expired`, `test_should_accept_jwt_with_valid_exp`, `test_should_refresh_token_within_leeway_window` | `exp`/`iat`/`nbf` claim과 현재 시각 비교의 결정성 | `freeze_time("2026-04-12T00:00:00Z")`, leeway ±60s 경계 |
+| Idempotency TTL | `test_should_expire_idempotency_cache_after_24h_ttl` | TTL 86400초 경과 시뮬레이션 | `freeze_time` + `tick()` 또는 `move_to(+86401s)` |
+| Redis 키 TTL | Notification TTL 30일, 실험 진행률 TTL 24시간 | 만료 동작 검증 | `freeze_time(...)` + mock_redis가 시간 인지 |
+| 감사 로그 `created_at` | `test_should_record_audit_when_*` 전 케이스 | `created_at` 결정성 + 체인 해시 재현 | `freeze_time` per test |
+| 스케줄러/cron | nightly 잡, 성능 baseline 비교 잡 | 스케줄 발화 시점 검증 | `freeze_time` + `croniter` |
+| Rate limit 윈도우 | `test_should_return_429_*`, sliding window 리셋 | 윈도우 경계 (예: 60s) 정확 검증 | `freeze_time` + `tick(seconds=N)` |
+| 비용 누적 윈도우 | 일일/월간 비용 집계, budget warning 트리거 | 일/월 경계(00:00 UTC) 발화 검증 | `freeze_time("...T23:59:59Z")` → `tick(2)` |
+| SSE heartbeat | 15초 heartbeat 주기 | 시간 흐름 결정성 | `freeze_time` + `asyncio` 가짜 루프 또는 `pytest-asyncio` + `time-machine` |
+| Langfuse trace timestamp | trace start/end 시간 fixture | 스냅샷 안정성 | `freeze_time` per test |
+| 프롬프트 버전 `created_at` 정렬 | `test_should_sort_prompt_versions_desc_by_created_at` | 정렬 결정성 | `freeze_time` 다회 `move_to` |
+
+**규칙**:
+- 위 매트릭스의 영역에 해당하는 테스트가 freezegun을 사용하지 않으면 CI 정적 검사(`tests/meta/test_freezegun_coverage.py`)가 실패시킨다. 해당 메타 테스트는 AST 파싱으로 `datetime.now()`/`time.time()` 직접 호출 + freezegun decorator 부재를 탐지한다.
+- `time.sleep()` 직접 호출 금지 (테스트에서). 대기 필요 시 `freeze_time().tick()` 또는 `asyncio.sleep`을 mock으로 가속한다.
+- 타임존: 모든 freeze 값은 `Z`(UTC) 표기 필수. 로컬 타임존 의존 테스트는 `monkeypatch.setenv("TZ", "UTC")` 추가.
 
 ---
 
@@ -1089,8 +1374,11 @@ pytest -m integration
 # 인프라 테스트만 (느림, 실제 서비스 필요)
 pytest -m infra
 
-# 빠른 테스트만 (infra 제외)
-pytest -m "not infra and not slow"
+# 빠른 테스트만 (infra/performance 제외)
+pytest -m "not infra and not slow and not performance"
+
+# 성능 NFR 테스트 (nightly)
+pytest -m performance --benchmark-only
 ```
 
 ### 커버리지 리포트

@@ -10,6 +10,8 @@
 ### 선행 조건
 - 없음 (최우선 작업)
 
+**TDD 순서**: Phase 0 자체는 테스트 인프라를 구축하는 단계이므로 TDD 대상이 아니다. 구축 후 `pytest --collect-only`와 vitest 실행으로 인프라 자체를 검증한다. 이후 Phase 2~6은 이 인프라 위에서 TDD(테스트 먼저 → 구현)를 적용한다.
+
 ### 작업 목록
 
 #### 0-1. Backend 테스트 프로젝트 구조
@@ -36,6 +38,8 @@
 
 #### 0-4. CI 파이프라인
 - `.github/workflows/test.yml` — backend-unit, backend-integration, frontend-unit, lint 분리 (TEST_SPEC.md 0.4 참조)
+- 잡 공통 단계 순서: ① `actions/checkout@v4` → ② `actions/setup-python@v5`(3.12, `cache: pip`) / `actions/setup-node@v4`(20, `cache: npm`) → ③ 의존성 설치(`pip install -e .[test]` / `npm ci`) → ④ 린트(ruff, eslint) → ⑤ 테스트 실행 → ⑥ 커버리지 업로드(`actions/upload-artifact@v4`).
+- 의존성 설치는 setup 액션의 캐시 키가 적중한 직후에 수행하며, 인프라 의존 잡(backend-integration)은 `services:` 블록으로 postgres/redis/clickhouse를 먼저 기동한 뒤 `wait-for-it.sh`로 health 대기 후 설치/테스트 진행.
 
 ### 산출물
 - `backend/tests/` 구조 + conftest.py + mock 4종 + jwt_helper
@@ -65,8 +69,21 @@ cd frontend && npx vitest --run --reporter=verbose 2>&1 | head  # vitest 실행 
 
 ### 작업 목록
 
-#### 1-1. docker-compose.yml
-개발 환경의 전체 인프라를 정의한다.
+#### 1-1. docker-compose 파일 세트
+개발/데모/운영 환경의 인프라를 분리된 compose 파일로 정의한다.
+
+| 파일 | 용도 | 비고 |
+|------|------|------|
+| `docker/docker-compose.yml` | 베이스 정의 (모든 서비스 공통) | 내부 서비스는 `expose:`만 사용 |
+| `docker/docker-compose.override.yml` | 로컬 개발용 (자동 병합) | 호스트 포트 노출(3001/4000), 코드 볼륨 마운트, `LITELLM_LOG=DEBUG` |
+| `docker/docker-compose.demo.yml` | 데모 환경 | seed 컨테이너 포함(데이터셋·프롬프트·실험 + **score config 등록**, 모든 항목 idempotent: 이름/버전 기반 존재 검사 후 skip, `restart: on-failure`로 재시도해도 중복 생성 없음), 데모 도메인/리소스 제한, 읽기 전용 사용자 강제 |
+| `docker/docker-compose.prod.yml` | 운영 환경 | 포트 노출 없음(리버스 프록시 전제), 리소스 제한, `restart: always`, secrets 마운트 |
+| `docker/.env.example` / `.env.demo` / `.env.production` | 환경별 변수 템플릿 | 시크릿은 별도 secret store |
+
+기동 명령:
+- 개발: `docker compose -f docker/docker-compose.yml -f docker/docker-compose.override.yml up -d`
+- 데모: `docker compose -f docker/docker-compose.yml -f docker/docker-compose.demo.yml --env-file docker/.env.demo up -d`
+- 운영: `docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml --env-file docker/.env.production up -d`
 
 | 서비스 | 이미지 | 포트 | 비고 |
 |--------|--------|------|------|
@@ -75,6 +92,10 @@ cd frontend && npx vitest --run --reporter=verbose 2>&1 | head  # vitest 실행 
 | clickhouse | clickhouse/clickhouse-server | 8123 | 시계열 분석 데이터 |
 | redis | redis:7 | 6379 | Langfuse 큐잉 + Labs 실험 상태 |
 | litellm | ghcr.io/berriai/litellm | 4000 | LLM Gateway |
+| minio | minio/minio | 9000/9001 | Langfuse blob storage(events/media/batch export). 운영은 외부 S3/GCS로 대체 가능 |
+| prometheus | prom/prometheus | 9090 | `/metrics` scrape, recording rules(`ax:*`), alerting rules 로딩 |
+
+기동 순서(depends_on + healthcheck로 강제): postgres/clickhouse/redis/minio → langfuse(web/worker) → litellm → backend(부팅 시 score config 등록) → frontend → prometheus(backend healthy 후 scrape). 데모는 backend healthy 이후 seed 컨테이너가 1회 실행된다.
 
 네트워크 분리:
 - `frontend_net`: 외부 노출 (frontend, backend)
@@ -149,11 +170,35 @@ Custom Code Evaluator 실행을 위한 샌드박스 이미지.
 - `runner.py` (stdin으로 입력 수신, stdout으로 결과 반환) 포함
 - `docker/eval-sandbox/` 디렉토리에 배치
 
+#### 1-6. Langfuse blob storage 구성 (LANGFUSE.md §5.6)
+- 베이스 compose에 `minio` 서비스 추가, `langfuse-events`/`langfuse-media`/`langfuse-batch-export` 버킷 자동 생성용 init job 포함
+- Langfuse web/worker에 `LANGFUSE_S3_EVENT_UPLOAD_*`, `LANGFUSE_S3_MEDIA_UPLOAD_*`, `LANGFUSE_S3_BATCH_EXPORT_*` 환경변수 주입 (운영은 외부 S3 endpoint, 데모/개발은 MinIO 내부 endpoint + `FORCE_PATH_STYLE=true`)
+- Langfuse worker는 minio healthy 이후 기동하도록 `depends_on.condition: service_healthy` 강제
+
+#### 1-7. Prometheus 구성 + Recording Rules (OBSERVABILITY.md §2.3~2.4)
+- `docker/prometheus/prometheus.yml` — backend `/metrics` scrape job(15s), `evaluation_interval: 15s`
+- `docker/prometheus/rules/recording.yml` — `ax:active_users:*`, `ax:llm_budget_utilization_ratio:*`, `ax:baseline:*` 사전 집계
+- `docker/prometheus/rules/alerts.yml` — OBSERVABILITY.md §2.5 임계치 로딩
+- compose `prometheus` 서비스가 위 파일을 마운트, backend healthy 이후 scrape 시작
+
+#### 1-8. Score Config 등록 부팅 훅 (LANGFUSE.md §Score Config)
+- backend 컨테이너 entrypoint에서 `services/score_registry.py`가 evaluator 카탈로그를 순회하며 `POST /api/public/score-configs`로 idempotent 등록 (이미 존재하면 skip, data_type/range 불일치 시 startup 실패)
+- 데모 환경 seed 컨테이너는 backend healthy 이후 기동하며, 데이터셋·프롬프트·실험 시드 외에 **데모 전용 score config**(예: `demo_quality`, `demo_toxicity`)도 동일 경로로 등록
+- compose의 `backend.depends_on`에 langfuse(web) healthy 조건 명시, seed 컨테이너는 backend healthy 조건 명시
+
+#### 1-9. ADR-011 시크릿 관리 정책 신설
+- `docs/adr/ADR-011-secrets-management.md` 작성: secret store 선정(개발=`.env` + git-ignored, 데모=환경변수 주입, 운영=외부 secret store / Docker secrets 마운트), 키 분류(LANGFUSE/LITELLM/PROVIDER/CLICKHOUSE/JWT/REDIS), 주입 경로, 로테이션 책임자, 감사 로그
+- Phase 1에 두는 이유: `docker-compose.prod.yml`의 `secrets:` 마운트 구조와 `.env.production` 템플릿이 본 ADR을 전제로 작성되어야 하며, Phase 8-2 시크릿 로테이션 절차가 본 ADR의 키 카탈로그를 참조한다
+- BUILD_ORDER 작업 1-1/1-3과 직접 의존(파일 구조·환경변수 명명 규칙 확정)
+
 ### 산출물
 - `docker compose up -d` 실행 시 모든 서비스가 정상 기동
 - Langfuse Web UI (localhost:3001) 접속 가능
 - LiteLLM Proxy (localhost:4000) 에서 `/health` 응답 확인
 - ClickHouse에 `labs_readonly` 계정으로 SELECT 쿼리 가능
+- MinIO 콘솔(9001)에서 events/media/batch-export 버킷 생성 확인
+- Prometheus(9090) `/rules`에서 `ax:*` recording rule 로딩 확인
+- backend 부팅 로그에 score config 등록(idempotent) 결과 출력, 데모 환경에서는 seed가 데모 score config까지 등록
 - sandbox 이미지 빌드 성공
 
 ### 검증 방법
@@ -257,7 +302,7 @@ backend/
 
 #### 2-6. 헬스체크 엔드포인트 (`GET /api/v1/health`)
 - 응답: Backend 자체 상태
-- 의존 서비스 연결 상태 확인: Langfuse, LiteLLM, ClickHouse, Redis
+- 의존 서비스 연결 상태 확인: Langfuse, LiteLLM, ClickHouse, Redis, MinIO(S3 HEAD), Prometheus(`/-/ready`)
 - 각 서비스별 OK/FAIL 상태 반환
 
 ### 산출물
@@ -450,10 +495,9 @@ Redis Lua 스크립트 기반 원자적 상태 전이.
 - 상태 전이 규칙은 Lua 스크립트로 Redis에서 원자적으로 처리
 - 실험 완료 시 최종 상태를 Langfuse trace metadata로 영속화
 
-#### 4-5. 실험/데이터셋 삭제 및 글로벌 검색
+#### 4-5. 실험 삭제
 - `DELETE /api/v1/experiments/{experiment_id}` (admin 전용, running/paused 상태는 삭제 불가)
-- `DELETE /api/v1/datasets/{name}` (admin 전용, Langfuse 프록시)
-- `GET /api/v1/search` (프롬프트, 데이터셋, 실험 통합 검색)
+- 데이터셋 삭제(`DELETE /api/v1/datasets/{name}`)와 글로벌 검색(`GET /api/v1/search`)은 Phase 3에서 이미 구현됨
 
 #### 4-6. 알림 생성 로직
 - `batch_runner.py` 완료/실패 훅에서 Notification 생성
@@ -521,7 +565,7 @@ curl -X POST "http://localhost:8000/api/v1/experiments/<id>/pause"
 
 ### 선행 조건
 - Phase 4 완료 (실험 실행 엔진 작동, LLM 호출 및 Langfuse trace 기록 가능)
-- ax-eval-sandbox Docker 이미지 빌드 완료 (Phase 1-5)
+- ax-eval-sandbox Docker 이미지 빌드 완료 (Phase 1 작업 1-5)
 
 **TDD 순서**: 테스트 먼저 작성 (TEST_SPEC 참조) → 프로덕션 코드 구현 → 테스트 통과 확인
 
@@ -740,7 +784,7 @@ project_id=...&run_name=run_a&score_name=exact_match&bins=10"
 
 #### 7-0. 프로젝트 셋업
 - Next.js 15 (App Router) 프로젝트 생성
-- Tailwind CSS v4 설정
+- Tailwind CSS v4 설정 — **데스크톱 전용**: 최소 지원 1280px, 권장 1440px+. `<1280px` 미디어 쿼리/모바일 레이아웃 분기 금지, 가로 스크롤 허용 (UI_UX_DESIGN.md "뷰포트 정책" 참조)
 - shadcn/ui 컴포넌트 라이브러리 설치
 - 폰트 설정: Pretendard (한글), Inter (영문/숫자), JetBrains Mono (코드)
 - API 클라이언트 모듈 (`lib/api.ts`): fetch 래퍼, JWT 자동 첨부, 에러 핸들링
@@ -757,10 +801,10 @@ project_id=...&run_name=run_a&score_name=exact_match&bins=10"
 - **알림 수신함 드롭다운** (Top Bar 종 아이콘): `GET /notifications` 폴링 (30초 간격), unread 배지, 클릭 시 `target_url`로 이동
 - **비교 장바구니 드롭다운** (Top Bar 배지): localStorage 기반 전역 상태, 최대 5개, 클릭 시 `/compare?runs=...`로 이동
 - **Side Nav** (56px): 아이콘만 표시, hover 시 라벨 툴팁, 실험 아이콘에 실행 중 건수 배지
+  - 메뉴 항목: 실험, 결과, 데이터셋, 프롬프트, 평가, 설정
+  - 현재 페이지는 accent 색상 배경 (indigo-400)
 - **글로벌 실행 상태 바** (페이지 하단 고정): SSE로 진행 중 실험 표시, 페이지 이동 후에도 유지
 - **브라우저 알림 권한 요청**: 첫 실험 시작 직후 1회 (Notification API), 거부 시 알림 수신함으로 유도
-  - 실험, 결과, 데이터셋, 프롬프트, 평가, 설정
-  - 현재 페이지는 accent 색상 배경 (indigo-400)
 - **Main Content**: Side Nav 제외 전체 너비
 
 #### 7-3. 페이지 구현 (구현 순서대로)
@@ -775,7 +819,7 @@ project_id=...&run_name=run_a&score_name=exact_match&bins=10"
 
 - 프로젝트 전환 (드롭다운 + `POST /projects/switch`)
 - LiteLLM에 등록된 모델 목록 표시 (`GET /models`)
-- 의존 서비스 연결 상태 표시 (Langfuse, LiteLLM, ClickHouse, Redis)
+- 의존 서비스 연결 상태 표시 (Langfuse, LiteLLM, ClickHouse, Redis, MinIO, Prometheus) — Phase 1-6/1-7에서 추가된 blob storage·메트릭 스택을 헬스 패널에서 동일하게 노출 (ADR-009/010)
 - 상태 표시: emerald dot (정상), rose dot (실패)
 
 검증: 페이지 로드 시 모든 서비스 상태가 표시되고, 프로젝트 전환이 동작한다.
@@ -942,6 +986,29 @@ open http://localhost:3000
 
 ---
 
+## Phase 8: 운영 인계 (Operational Handoff)
+
+### 선행 조건
+- Phase 0~7 완료, 모든 마일스톤 통과
+
+### 작업 목록
+- **8-1. 런북 작성**: `docs/runbooks/` 디렉터리 — 시나리오별 파일 분리(`langfuse-down.md`, `clickhouse-disk-full.md`, `litellm-key-expired.md`, `sandbox-oom.md`) + `docs/runbooks/README.md`(인덱스), OBSERVABILITY.md 알림 ID ↔ 런북 파일 매핑 표 포함 (ADR-011 시크릿 관리 정책 참조)
+- **8-2. 시크릿 로테이션 절차**: Langfuse API Key, JWT 서명 키, LLM Provider 키, ClickHouse 비밀번호의 회전 주기/명령/검증 단계 문서화 (ADR-011에 정의된 secret store에서 주입)
+- **8-3. 백업/복구 드릴**: postgres(Langfuse 메타) 덤프, MinIO 버킷 복제, Redis AOF 스냅샷 절차 + `scripts/backup-drill.sh`(자동 덤프·복원 검증, cron/launchd 등록 가능) + 분기 1회 복구 리허설 체크리스트
+- **8-4. 온콜 설정**: Telegram/Slack 알림 채널, Prometheus Alertmanager 라우팅, 1차/2차 담당자 로테이션
+- **8-5. 인수 인계 회의**: 운영팀 대상 아키텍처 워크스루, 대시보드/메트릭 사용법, 알려진 한계(MVP 범위) 공유
+
+### 산출물
+- `docs/runbooks/{README,langfuse-down,clickhouse-disk-full,litellm-key-expired,sandbox-oom}.md`, `docs/SECRETS_ROTATION.md`, `docs/BACKUP_RESTORE.md`, `scripts/backup-drill.sh`
+- Alertmanager 라우팅 설정 커밋
+- 인계 회의록 + 운영팀 sign-off
+
+### 검증 방법
+- 백업 → 빈 환경에서 복구 → 핵심 시나리오 1건 통과
+- 인위적 장애 주입(예: langfuse 컨테이너 stop) 후 알림 수신 + 런북 절차로 복구
+
+---
+
 ## Phase 간 의존성 요약
 
 ```
@@ -953,13 +1020,119 @@ Phase 0 (테스트 인프라)
                           └─▶ Phase 5 (평가 시스템)
                                 └─▶ Phase 6 (분석)
                                       └─▶ Phase 7 (Frontend)
+                                            └─▶ Phase 8 (운영 인계)
 
-Phase 1-5 (sandbox 이미지) ──▶ Phase 5-3 (Custom Code Evaluator)
+Phase 1 작업 1-5 (sandbox 이미지) ──▶ Phase 5 작업 5-3 (Custom Code Evaluator)
 ```
 
 - Phase 0~6은 순차적 의존성
 - Phase 7 (Frontend)은 Phase 6 완료 후 시작하는 것이 이상적이나, API 스펙 확정 후 병렬 개발 가능
 - Frontend 페이지 간에도 순서가 있음: 설정 → 데이터셋 → 프롬프트 → 단일 테스트 → 배치 → 평가 → 비교
+
+---
+
+## FEATURES §11 우선순위 ↔ Phase 매핑
+
+FEATURES.md §11의 P0/P1/P2 우선순위를 본 문서의 Phase 작업 단위로 역매핑한다. FEATURES.md 표의 "BUILD_ORDER.md Phase N" 표기는 기획 단계 개략치이며, 실제 구현 위치는 아래 표를 따른다.
+
+| 우선순위 | 기능 | 실제 구현 Phase / 작업 |
+|---------|------|----------------------|
+| **P0 (MVP)** | 단일 테스트 (FEATURES §1) | Phase 4 / 4-1, 4-2 (Context Engine + Single Test Runner) |
+| P0 | 배치 실험 (FEATURES §2) | Phase 4 / 4-1, 4-3, 4-4, 4-7 |
+| P0 | 데이터셋 업로드 (FEATURES §4) | Phase 3 / 3-2 |
+| P0 | 내장 평가 함수 (FEATURES §5.2) | Phase 5 / 5-1, 5-4 |
+| P0 | LLM-as-Judge (FEATURES §5.2) | Phase 5 / 5-2, 5-4 |
+| P0 | 기본 실험 비교 (FEATURES §3.1~3.2) | Phase 6 / 6-1, 6-2, 6-3 (compare, compare/items) |
+| **P1** | 스코어 분포 분석 (FEATURES §3.3) | Phase 6 / 6-3 (scores/distribution) |
+| P1 | 비용/성능 분석 (FEATURES §3.4) | Phase 6 / 6-3 (latency/cost distribution) |
+| P1 | 변수 프리셋 (FEATURES §6.2) | Phase 7 / 페이지 4 (단일 테스트 localStorage) |
+| P1 | 실패 아이템 파생 데이터셋 (FEATURES §9.3) | Phase 3 / 3-2 (`POST /datasets/from-items`) + Phase 7 페이지 7 |
+| P1 | 알림 수신함 (FEATURES §9.2) | Phase 4 / 4-6 + Phase 7 / 7-2 (Top Bar 드롭다운) |
+| **P2** | Custom Evaluator 거버넌스 (FEATURES §5.2, §9.1) | Phase 5 / 5-3, 5-6 + Phase 7 / 페이지 6 |
+| P2 | 실험 템플릿 (FEATURES §9.5) | Phase 4 / 4-7 (config_snapshot) + Phase 7 페이지 5 |
+| P2 | 비교 장바구니 (FEATURES §9.4) | Phase 7 / 7-2 (Top Bar) + 페이지 7 |
+| P2 | 평가 가중치 (FEATURES §10) | Phase 5 / 5-5 (weighted_score) |
+
+**MVP 완성 기준**: P0 항목이 모두 동작하려면 Phase 0~6이 완료되고 Phase 7의 페이지 1~5, 7이 구현되어야 한다. Phase 6 없이 MVP 불가(기본 실험 비교가 P0).
+
+**참고**: FEATURES.md §11 표에 표기된 Phase 범위(P0=Phase 1~3 등)는 기획 단계 개략치로, 본 표와 상이할 경우 본 표를 신뢰한다. FEATURES.md는 차후 동기화 대상.
+
+---
+
+## 병렬 작업 기회
+
+각 Phase 내부 및 Phase 간 병렬화 가능한 작업을 명시한다. 의존성이 없는 작업은 동시 진행하여 전체 기간을 단축한다.
+
+### Phase 내부 병렬화
+- **Phase 0**: 0-1(Backend 구조), 0-3(Frontend 설정), 0-4(CI)는 서로 독립 → 병렬. 0-2(Mock fixture)는 0-1 이후.
+- **Phase 1**: 1-1/1-2/1-3(compose, LiteLLM config, .env)은 병렬 작성 가능. 1-4(ClickHouse readonly)는 1-1 기동 후. 1-5(sandbox 이미지)는 완전 독립 → 다른 작업과 병렬.
+- **Phase 2**: 2-2(config), 2-3(JWT), 2-4(Langfuse client), 2-5(Redis client)는 2-1(구조) 이후 병렬 구현 가능. 2-6(헬스체크)은 2-4/2-5 의존.
+- **Phase 3**: 3-1~3-5 API는 모듈 간 결합도가 낮아 병렬 구현 가능 (단, 공통 미들웨어/deps는 사전 확정).
+- **Phase 4**: 4-1(Context Engine)은 4-2/4-3의 선행. 4-2(Single)와 4-3(Batch)은 Context Engine 완료 후 병렬. 4-4(제어), 4-6(알림), 4-7(스냅샷)은 4-3 이후 병렬.
+- **Phase 5**: 5-1(Built-in), 5-2(LLM Judge), 5-3(Custom Code)은 독립적 → 병렬. 5-4(Pipeline)는 5-1~5-3 완료 후. 5-5(weighted), 5-6(거버넌스)은 5-4 이후 병렬.
+- **Phase 6**: 6-1(ClickHouse client) → 6-2(쿼리 템플릿) → 6-3(API)는 순차.
+- **Phase 7**: 페이지 1/2/3은 서로 독립 → 병렬 개발 가능. 4/5는 3 이후. 6/7은 5 이후.
+
+### Phase 간 병렬화
+- **Phase 1 ↔ Phase 0**: Phase 0의 Mock fixture 작성은 Phase 1 인프라 기동과 병렬 진행 가능 (Mock은 실제 서비스 불필요).
+- **Phase 1-5 (sandbox 이미지)**: Phase 2~4 진행 중 별도 트랙에서 빌드 가능. Phase 5 시작 전까지만 완료되면 됨.
+- **Phase 7 (Frontend)**: Phase 3에서 API 스펙(OpenAPI) 확정 시점부터 MSW mock 기반으로 선행 개발 가능. 단, Backend API 완성 전까지 E2E 검증 불가.
+- **Phase 6 쿼리 설계**: Phase 5 진행 중 ClickHouse 스키마 분석과 쿼리 템플릿 초안 작성은 병렬 가능.
+
+---
+
+## 롤백 전략
+
+각 Phase별 실패/중단 시 복구 절차. 모든 변경은 Git 커밋 단위로 관리하고, 인프라 변경은 `docker compose down` 후 재시작으로 깨끗하게 복원 가능해야 한다.
+
+### 공통 원칙
+- **Git 기반 코드 롤백**: Phase 단위로 태그(`phase-0-complete`, `phase-1-complete`, ...)를 찍고, 문제 발생 시 `git revert` 또는 `git reset --hard <tag>`로 복귀.
+- **데이터 보존**: Langfuse/ClickHouse/Redis 볼륨은 `docker compose down` 시 유지(`-v` 플래그 금지). 완전 초기화 필요 시에만 `-v` 사용.
+- **체크포인트 원칙**: Phase 완료 시 1) 모든 테스트 통과, 2) 검증 방법 수동 확인, 3) Git 태그 생성, 4) 다음 Phase 시작.
+
+### Phase별 롤백
+- **Phase 0**: 테스트 인프라 실패 시 `backend/tests/`, `frontend/tests/`, `.github/workflows/test.yml` 삭제 후 재구축. 영향 범위는 테스트 한정이므로 데이터 리스크 없음.
+- **Phase 1**: `docker compose -f docker/docker-compose.yml down` (볼륨 유지) → compose/config 수정 → `up -d` 재기동. 네트워크/포트 충돌은 `docker network prune`으로 해결. sandbox 이미지 롤백은 `docker image rm ax-eval-sandbox:1.0.0` 후 재빌드.
+- **Phase 2**: Backend 구조 문제 시 `backend/app/` 전체를 Phase 0 상태(스텁)로 복귀. JWKS/환경변수 오류는 `.env` 수정 후 재기동. Langfuse/Redis 클라이언트 회귀는 단위 테스트로 즉시 감지.
+- **Phase 3**: API 모듈 단위로 개별 revert 가능. Langfuse에 잘못 생성된 리소스(프롬프트/데이터셋)는 Langfuse UI에서 수동 삭제 또는 `DELETE` API 사용. 파일 업로드 실패 시 멱등성 키로 중복 업로드 방지.
+- **Phase 4**: 실험 엔진 실패 시 진행 중 실험은 `POST /experiments/{id}/cancel`로 중단. Redis의 실험 상태는 `ax:experiment:*` 키 삭제로 초기화 (단, 진행 중 실험이 없을 때만). Langfuse trace는 남지만 유해하지 않으므로 보존.
+- **Phase 5**: 평가 시스템 오류 시 해당 evaluator만 비활성화 (실험은 evaluator 없이도 실행 가능). Custom Code 샌드박스 이상 시 `docker rm` 후 재생성. Langfuse `score`는 잘못 기록되어도 재계산하여 덮어쓰기 가능.
+- **Phase 6**: ClickHouse 쿼리는 읽기 전용이므로 데이터 손상 리스크 없음. 쿼리 오류 시 코드 revert만으로 복구. LIMIT 누락 등 리소스 폭주는 쿼리 타임아웃으로 방어.
+- **Phase 7**: Frontend 페이지 단위 revert. 라우트/컴포넌트 단위로 격리되어 있어 영향 최소. SSE 연결 누수는 페이지 새로고침으로 해결.
+
+### 심각도별 대응
+- **경미 (코드 버그)**: Git revert + 재배포.
+- **중간 (인프라 설정)**: `docker compose down` → 설정 수정 → `up -d`.
+- **심각 (데이터 손상)**: 최근 볼륨 스냅샷으로 복원 (운영 환경에서는 일일 백업 필수).
+
+---
+
+## 마이그레이션 / 초기화 순서
+
+신규 환경 셋업 시 또는 재구축 시 따라야 하는 기동 순서. 의존성 방향(아래 → 위)을 준수해야 한다.
+
+1. **인프라 서비스 기동** (Phase 1): `postgres` → `clickhouse` → `redis` → `minio`(버킷 init job) → `langfuse`(postgres/clickhouse/minio 의존) → `litellm` → (backend healthy 후) `prometheus`. Docker Compose의 `depends_on` + healthcheck로 자동 보장.
+2. **ClickHouse 읽기 전용 계정 생성** (Phase 1, 최초 1회): `docker compose exec clickhouse bash /scripts/setup-clickhouse-readonly.sh`. Langfuse가 ClickHouse 스키마를 생성한 이후에 실행해야 한다 (Langfuse 기동 후 최소 30초 대기).
+3. **Langfuse 초기 설정** (Phase 1): Langfuse UI에서 조직/프로젝트/API Key 생성 → `.env`에 반영.
+4. **LiteLLM 모델 등록** (Phase 1): `config.yaml`에 모델 정의 → LiteLLM 재기동 → `/model/info`로 확인.
+5. **Backend 기동** (Phase 2+): `.env` 로드 → `uvicorn app.main:app` → `/api/v1/health`로 의존 서비스 확인.
+6. **데이터 시드** (Phase 3 검증/데모용 필수, 로컬 개발 선택): `scripts/seed_langfuse.py`를 실행하여 Langfuse에 ① 테스트 프롬프트 1건(`labs-demo-classification`, v1), ② 데이터셋 1건(`labs-demo-dataset`, item 5건, JSONL), ③ Custom Code Evaluator 샘플 1건, ④ 모델 별칭 매핑(`gpt-4o-mini` → LiteLLM 라우트)을 멱등 업로드한다. 스크립트는 `LANGFUSE_PUBLIC_KEY/SECRET_KEY` 필수, 재실행 시 동일 ID로 덮어쓰기. 데모 환경(`docker-compose.demo.yml`)에서는 `seed` 컨테이너가 Langfuse `healthy` 이후 자동 1회 실행된다.
+7. **Frontend 기동** (Phase 7): `npm run dev`. Backend가 먼저 기동되어 있어야 `/api/v1/health` 프록시 확인 가능.
+
+### 7-A. Backend 재기동 시 실험 상태 복구
+Backend 재기동(롤링 업데이트, 장애 복구, SIGTERM 후 재가동) 직후 다음 절차를 자동 실행한다 (IMPLEMENTATION.md §6.4 Graceful shutdown과 정합):
+
+1. Redis `SCAN MATCH ax:experiment:*` (또는 §1.5의 프로젝트별 인덱스 ZRANGE)로 `status∈{running,paused}` 실험 ID 수집.
+2. 각 실험에 대해:
+   - `status=paused` AND `paused_reason=shutdown` AND `last_checkpoint_at` ≤ `LABS_EXPERIMENT_STATE_TTL` 이내 → 자동 재개(`asyncio.create_task(run_experiment(..., resume=True))`), SSE `event: resumed` 송신.
+   - `status=running` (이전 프로세스 비정상 종료) → 진행률 메타 검증 후 재개. 검증 실패 시 `status=failed`, `failure_reason=orphaned_after_restart`로 마감하고 Langfuse trace를 `level=ERROR`로 마감.
+   - TTL 만료/체크포인트 누락 → `status=failed`로 마감.
+3. Redis 분산 카운터 `ax:concurrency:experiments`를 0으로 재설정한 뒤, 재개된 실험 수만큼 INCR.
+4. 복구 결과를 구조화 로그(`event=experiment_recovery`)로 기록하고 운영 알림 채널에 요약 송신.
+5. 위 절차가 끝난 후에만 `/api/v1/health`가 `ready=true`를 반환한다 (k8s readinessProbe 연동).
+
+### 역순 종료
+완전 종료 시 역순으로: Frontend → Backend → LiteLLM → Langfuse → Redis → ClickHouse → Postgres. Backend는 SIGTERM 수신 후 `LABS_SHUTDOWN_GRACE_SEC`(기본 30초) 동안 진행 실험을 `status=paused`로 체크포인트 저장한 뒤 종료한다 (IMPLEMENTATION.md §6.4). 데이터 보존을 위해 `docker compose down` (볼륨 유지), 완전 초기화 시에만 `docker compose down -v`.
 
 ---
 
