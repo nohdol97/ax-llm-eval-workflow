@@ -22,7 +22,7 @@
 
 ---
 
-## 1.5 헬스 체크
+### 1.5 헬스 체크
 ```
 GET /api/v1/health
 
@@ -895,6 +895,44 @@ Response:
 
 ---
 
+## 12.5 Rate Limiting & 비용 제어
+
+### 12.5.1 엔드포인트별 Rate Limit
+
+사용자당(JWT sub 기반) sliding window rate limit. Redis 기반 구현 (`ax:ratelimit:{user_id}:{endpoint}`).
+
+| 엔드포인트 | 제한 | 초과 시 |
+|-----------|------|-------|
+| `POST /experiments` | 10/min, 100/day | 429 + `Retry-After` 헤더 |
+| `POST /tests/single` | 60/min | 429 |
+| `POST /datasets/upload` | 5/min, 50/day | 429 |
+| `POST /evaluators/validate` | 20/min | 429 |
+| `POST /evaluators/submissions` | 5/day | 429 |
+| `GET /analysis/*` (분포/비교) | 30/min | 429 + 캐시된 결과 제공 시도 |
+| 기본 GET 엔드포인트 | 300/min | 429 |
+
+### 12.5.2 프로젝트 LLM 비용 Budget
+
+- `PROJECTS_CONFIG`의 각 프로젝트에 `daily_cost_limit_usd` 필드 추가 (기본: $100)
+- Redis Hash `ax:project:{id}:cost:daily:{YYYY-MM-DD}` 에 `HINCRBYFLOAT` 로 누적
+- 실험 생성 시점에 예상 비용 + 현재 누적 비용이 한도 초과 시 `403 BUDGET_EXCEEDED` 반환
+- 실행 중 한도 초과 시 해당 실험만 `failed` 전이, 다른 실험은 유지
+- 한도 80% 도달 시 프로젝트 admin에게 알림(`budget_warning` 타입)
+
+### 12.5.3 실험 동시성 상한
+
+- 프로젝트당 동시 `running` 실험: 기본 5개 (환경변수 `MAX_CONCURRENT_EXPERIMENTS_PER_PROJECT`)
+- 초과 시 `429 CONCURRENCY_LIMIT_EXCEEDED` + 현재 실행 중 목록 반환
+- Lua script로 원자적 카운터 증감 (`ax:project:{id}:running_count`)
+
+### 12.5.4 Custom Evaluator 샌드박스 상한
+
+- 호스트당 동시 샌드박스 컨테이너: `EVAL_SANDBOX_MAX_CONCURRENT` (기본 10)
+- 초과 시 실험 생성 큐잉 (최대 60초 대기), 이후 `503 SANDBOX_UNAVAILABLE`
+- asyncio.Semaphore로 enforce
+
+---
+
 ## 13. 알림 (Notification Inbox) API
 
 ### 13.1 알림 목록 조회
@@ -1027,6 +1065,10 @@ Request Body (reject):
 | LLM_ERROR | 502 | LLM 호출 실패 |
 | LLM_TIMEOUT | 504 | LLM 호출 타임아웃 |
 | LLM_RATE_LIMIT | 429 | LLM 프로바이더 rate limit |
+| RATE_LIMIT_EXCEEDED | 429 | 사용자 API rate limit 초과 (Retry-After 헤더 포함) |
+| BUDGET_EXCEEDED | 403 | 프로젝트 일일 LLM 비용 한도 초과 |
+| CONCURRENCY_LIMIT_EXCEEDED | 429 | 프로젝트 동시 실험 수 초과 |
+| SANDBOX_UNAVAILABLE | 503 | 호스트 샌드박스 컨테이너 포화 상태 |
 | LANGFUSE_ERROR | 502 | Langfuse API 호출 실패 |
 | CLICKHOUSE_ERROR | 502 | ClickHouse 쿼리 실패 |
 | EVALUATOR_ERROR | 500 | 평가 함수 실행 실패 |
