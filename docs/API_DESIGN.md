@@ -776,7 +776,122 @@ Query Parameters:
 
 ---
 
-## 12. 에러 코드
+## 11.3 데이터셋 파생 생성 (실패 아이템 기반)
+
+```
+POST /api/v1/datasets/from-items
+
+Request Body:
+{
+    "project_id": "string",
+    "source_run_names": ["run_a", "run_b"],
+    "item_ids": ["item_001", "item_042"],
+    "new_dataset_name": "failed_cases_20260415",
+    "description": "감성분석 v3 실패 케이스 10건"
+}
+
+Response:
+{
+    "dataset_name": "...",
+    "items_created": 10,
+    "status": "completed"
+}
+
+권한: user 이상
+내부 동작: 기존 trace에서 input/expected/metadata 추출 → 새 Langfuse 데이터셋 생성
+```
+
+---
+
+## 13. 알림 (Notification Inbox) API
+
+### 13.1 알림 목록 조회
+```
+GET /api/v1/notifications
+
+Query Parameters:
+- project_id: string
+- unread_only: boolean (default false)
+- page: int, page_size: int (default 20, max 100)
+
+Response:
+- notifications: [{
+    id, type ("experiment_complete" | "experiment_failed" | "evaluator_approved" | "evaluator_rejected"),
+    title, message, target_url, read, created_at
+  }]
+- unread_count: int
+- total: int
+
+권한: viewer 이상 (본인 알림만)
+```
+
+### 13.2 알림 읽음 처리
+```
+PATCH /api/v1/notifications/{id}/read
+POST /api/v1/notifications/mark-all-read
+
+권한: viewer 이상 (본인 알림만)
+```
+
+저장소: Redis `ax:notification:{user_id}:*` (TTL 30일) — IMPLEMENTATION.md 참조
+
+---
+
+## 14. Custom Evaluator 거버넌스 API
+
+### 14.1 Evaluator 제출
+```
+POST /api/v1/evaluators/submissions
+
+Request Body:
+{
+    "name": "category_f1",
+    "description": "카테고리별 F1 스코어",
+    "code": "def evaluate(output, expected, metadata):\n    ..."
+}
+
+Response:
+{
+    "submission_id": "uuid",
+    "status": "pending",
+    "submitted_at": "..."
+}
+
+권한: user 이상 (admin도 제출 가능하지만 자기 제출은 자동 승인)
+```
+
+### 14.2 제출 목록 조회
+```
+GET /api/v1/evaluators/submissions
+
+Query Parameters:
+- status: "pending" | "approved" | "rejected" (default all)
+- project_id: string
+
+Response:
+- submissions: [{ submission_id, name, description, code, submitter, status, created_at, reviewed_at, rejection_reason }]
+
+권한: admin (전체), user (본인 제출만)
+```
+
+### 14.3 제출 승인/반려
+```
+POST /api/v1/evaluators/submissions/{id}/approve
+POST /api/v1/evaluators/submissions/{id}/reject
+
+Request Body (reject):
+{ "reason": "외부 네트워크 호출 시도가 감지되었습니다" }
+
+권한: admin
+반려 시: 제출자에게 알림 생성 (13.x)
+승인 시: 제출자 + 전체 사용자에게 활성화된 evaluator로 사용 가능
+```
+
+저장소: Redis `ax:evaluator_submission:{id}` (TTL 없음, 영구 보관)
+
+---
+
+## 15. 에러 코드
 
 | 코드 | HTTP Status | 설명 |
 |------|-------------|------|

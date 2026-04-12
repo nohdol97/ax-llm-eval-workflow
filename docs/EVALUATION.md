@@ -352,6 +352,35 @@ Langfuse에 score 기록 (trace_id 기준)
 
 ---
 
+## 5.4 평가 함수 가중치 & 가중 평균 스코어
+
+### 5.4.1 가중치 지정
+
+- 각 evaluator는 `weight` 필드(0.0~1.0) 보유. 지정되지 않으면 기본 1.0 / N (균등 분배)
+- 사용자가 지정 시 합계는 1.0이어야 함 (검증은 클라이언트 + 서버 양쪽)
+- 0.0 가중치는 참고용 스코어(결과 표시는 되나 종합 점수에 미반영)
+
+### 5.4.2 가중 평균 계산
+
+```
+weighted_score = Σ (score_i × weight_i)  where score_i is not null
+```
+
+- null 스코어는 가중 평균 계산에서 제외, 제외된 evaluator의 weight는 재정규화
+- 재정규화: `adjusted_weight_i = weight_i / Σ(weight_j for j where score_j is not null)`
+
+### 5.4.3 Langfuse 저장
+
+- 각 개별 evaluator 스코어는 기존대로 `langfuse.score(trace_id, name, value)`로 저장
+- 가중 평균은 별도 name으로 저장: `langfuse.score(trace_id, "weighted_score", weighted_value, comment="weights: exact_match=0.5, judge=0.5")`
+
+### 5.4.4 검증 규칙
+
+- 가중치 합계 ≠ 1.0 → `422 VALIDATION_ERROR` with "evaluator weights must sum to 1.0"
+- 개별 가중치 < 0 또는 > 1 → 동일 에러
+
+---
+
 ## 6. 평가 결과 활용
 
 ### 6.1 Langfuse Score 데이터 모델
