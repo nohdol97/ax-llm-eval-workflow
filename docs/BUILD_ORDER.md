@@ -316,8 +316,10 @@ Langfuse Prompt Management API를 프록시한다.
 |------------|-----------|
 | `GET /api/v1/datasets` | Langfuse 데이터셋 목록 |
 | `GET /api/v1/datasets/{name}/items` | 아이템 조회 (페이지네이션) |
-| `POST /api/v1/datasets/upload` | 파일 파싱 (CSV/JSON/JSONL) + 매핑 + Langfuse 업로드 |
+| `POST /api/v1/datasets/upload` | 파일 파싱 (CSV/JSON/JSONL) + 매핑 + Langfuse 업로드 (async, upload_id 반환) |
+| `GET /api/v1/datasets/upload/{upload_id}/stream` | SSE 진행률 스트리밍 |
 | `POST /api/v1/datasets/upload/preview` | 업로드 미리보기 (첫 5건) |
+| `POST /api/v1/datasets/from-items` | 기존 실험의 실패 아이템에서 파생 데이터셋 생성 (user) |
 | `DELETE /api/v1/datasets/{name}` | 데이터셋 삭제 (admin만) |
 
 파일 파싱 시:
@@ -453,6 +455,17 @@ Redis Lua 스크립트 기반 원자적 상태 전이.
 - `DELETE /api/v1/datasets/{name}` (admin 전용, Langfuse 프록시)
 - `GET /api/v1/search` (프롬프트, 데이터셋, 실험 통합 검색)
 
+#### 4-6. 알림 생성 로직
+- `batch_runner.py` 완료/실패 훅에서 Notification 생성
+- 대상 사용자: `ax:experiment:{id}` → `started_by`
+- Redis `ax:notification:{user_id}:*` 저장 (TTL 30일)
+- IMPLEMENTATION.md §1.5 "알림 생성 주체" 참조
+
+#### 4-7. 실험 설정 스냅샷
+- `POST /experiments` 시 원본 요청을 `ax:experiment:{id}` → `config` 필드에 JSON으로 저장 (이미 IMPLEMENTATION §1.3에 정의됨)
+- `GET /experiments/{id}` 응답의 `config_snapshot`으로 노출
+- Frontend "같은 설정으로 재실행" 기능 지원
+
 ### 산출물
 - 단일 테스트: curl로 SSE 스트리밍 응답 수신 가능
 - 배치 실험: N개 아이템에 대해 LLM 호출 → Langfuse 기록 → SSE 진행률 확인
@@ -577,6 +590,20 @@ Docker 샌드박스에서 사용자 작성 Python 코드를 실행한다.
 - 개별 evaluator 실패 시 `score=null`로 기록, 실험은 계속 진행
 - 모든 evaluator 실패 시 아이템을 "평가 실패"로 표시
 - LLM Judge 비용은 실험 비용에 별도 집계
+
+#### 5-5. 가중 평균 스코어 (weighted_score)
+- 각 evaluator에 `weight` 필드 적용 (합계 1.0 검증)
+- Pipeline Orchestrator에서 null 제외 재정규화 후 가중 평균 계산
+- `langfuse.score(trace_id, "weighted_score", value)`로 별도 기록
+- EVALUATION.md §5.4 참조
+
+#### 5-6. Custom Evaluator 거버넌스 API
+- `POST /api/v1/evaluators/submissions` — 코드 제출 (user)
+- `GET /api/v1/evaluators/submissions` — 제출 목록 (admin=전체, user=본인만)
+- `POST /api/v1/evaluators/submissions/{id}/approve|reject` — 승인/반려 (admin)
+- `GET /api/v1/evaluators/approved` — 승인된 evaluator 목록 (user 이상, 위저드 Step 3 UI 데이터 소스)
+- Redis `ax:evaluator_submission:*` 저장소 (IMPLEMENTATION §1.5)
+- 승인/반려 시 제출자에게 Notification 생성
 
 ### 산출물
 - 단일 테스트 시 evaluators를 지정하면 스코어가 Langfuse에 기록됨
@@ -724,8 +751,12 @@ project_id=...&run_name=run_a&score_name=exact_match&bins=10"
 - 인증 컨텍스트 Provider
 
 #### 7-2. 레이아웃 셸
-- **Top Bar** (48px): 로고 + 프로젝트 선택 드롭다운 (좌측), 사용자 메뉴 (우측)
-- **Side Nav** (56px): 아이콘만 표시, hover 시 라벨 툴팁
+- **Top Bar** (48px): 로고 + 프로젝트 선택 드롭다운 (좌측), 알림 종 아이콘 + 비교 장바구니 아이콘 + 사용자 메뉴 (우측)
+- **알림 수신함 드롭다운** (Top Bar 종 아이콘): `GET /notifications` 폴링 (30초 간격), unread 배지, 클릭 시 `target_url`로 이동
+- **비교 장바구니 드롭다운** (Top Bar 배지): localStorage 기반 전역 상태, 최대 5개, 클릭 시 `/compare?runs=...`로 이동
+- **Side Nav** (56px): 아이콘만 표시, hover 시 라벨 툴팁, 실험 아이콘에 실행 중 건수 배지
+- **글로벌 실행 상태 바** (페이지 하단 고정): SSE로 진행 중 실험 표시, 페이지 이동 후에도 유지
+- **브라우저 알림 권한 요청**: 첫 실험 시작 직후 1회 (Notification API), 거부 시 알림 수신함으로 유도
   - 실험, 결과, 데이터셋, 프롬프트, 평가, 설정
   - 현재 페이지는 accent 색상 배경 (indigo-400)
 - **Main Content**: Side Nav 제외 전체 너비
@@ -840,9 +871,12 @@ Langfuse Prompt Management 연동.
   - 비용 추정 표시
 - Custom Code Evaluator:
   - Python 코드 에디터 (CodeMirror, Python 구문 하이라이팅)
-  - 테스트 케이스 입력 + 검증 실행 (`POST /evaluators/validate`)
+  - 테스트 케이스 입력 + 검증 실행 (`POST /evaluators/validate`, user 권한)
   - 실행 결과 표시
-  - admin 권한 필요 경고
+- **Custom Evaluator 거버넌스 UI** (섹션 26.9):
+  - user 역할: 제출 폼 + 본인 제출 목록 (`POST/GET /evaluators/submissions`)
+  - admin 역할: 검토 큐 (pending 목록), 코드 diff, 승인/반려 버튼
+  - 승인된 evaluator는 위저드 Step 3 (`GET /evaluators/approved` 체크박스 목록)에 표시
 
 검증: Built-in 목록 확인 → LLM Judge 프롬프트 설정 → Custom Code 작성 → 검증 실행 → 결과 확인.
 
@@ -853,12 +887,16 @@ Langfuse Prompt Management 연동.
 차트와 테이블로 실험 결과를 시각화한다.
 
 상단 - 비교 Run 선택:
-- Run 선택 (복수, 최소 2개)
+- Run 선택 (복수, 최소 2개, 최대 5개 — 섹션 28.2 시리즈 색상 수)
 - 선택된 Run들의 프롬프트 버전, 모델 정보 표시
+- Compare Basket에서 자동 로드 (URL `?runs=...` 파라미터)
 
-KPI 카드 (요약):
+KPI 카드 (요약, 가중 평균 스코어 기준):
 - Best Score (어떤 Run), Fastest (어떤 Run), Cheapest (어떤 Run)
 - 상대 비교 수치 표시 (% 차이)
+- **"🏆 이 버전 승격하기" CTA** (admin 전용): Best Score 카드에서 해당 Run의 프롬프트 버전을 production으로 승격하는 다이얼로그 호출 (섹션 18.3)
+- "📁 새 데이터셋으로 저장": 선택된 실패 아이템으로 파생 데이터셋 생성 (`POST /datasets/from-items`)
+- "📥 CSV 내보내기": 비교 결과 테이블 다운로드
 
 상세 비교 (탭):
 - 스코어 탭: 분포 히스토그램 (Recharts), Run별 통계 (avg, stddev)

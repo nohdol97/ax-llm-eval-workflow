@@ -355,9 +355,19 @@ Response:
         }
     ],
     "created_at": "...",
-    "completed_at": "..."
+    "completed_at": "...",
+    "config_snapshot": {
+        "prompt_configs": [...],
+        "model_configs": [...],
+        "evaluators": [...],
+        "dataset_name": "...",
+        "concurrency": 5,
+        "system_prompt": "..."
+    }
 }
 ```
+
+`config_snapshot`은 원본 실험 생성 요청을 그대로 보존하며, UI의 "같은 설정으로 재실행" 기능에서 사용한다.
 
 ### 4.4 실험 제어
 ```
@@ -510,13 +520,27 @@ Response:
 }
 ```
 
+### 5.2.1 아이템 필터 (스코어 범위)
+
+`POST /api/v1/analysis/compare/items` 요청에 필터 추가:
+```
+"filter": {
+    "score_name": "exact_match",
+    "score_min": 0.0,
+    "score_max": 0.3,
+    "latency_min_ms": null,
+    "latency_max_ms": null
+}
+```
+차트에서 특정 bin 클릭 시 드릴다운에 사용.
+
 ### 5.3 스코어 분포 조회
 ```
 GET /api/v1/analysis/scores/distribution
 
 Query Parameters:
 - project_id: string
-- run_name: string
+- run_names: string (쉼표 구분, 복수 지원 — overlay histogram용)
 - score_name: string
 - bins: int (default 10)
 
@@ -535,6 +559,28 @@ Response:
         "max": 1.0
     }
 }
+```
+
+### 5.4 지연시간 분포 조회
+```
+GET /api/v1/analysis/latency/distribution
+
+Query Parameters: project_id, run_names (쉼표 구분), bins
+Response:
+{
+    "runs": {
+        "run_a": { "distribution": [...], "statistics": {"p50": 950, "p90": 1800, "p99": 3200} },
+        "run_b": { ... }
+    }
+}
+```
+
+### 5.5 비용 분포 조회
+```
+GET /api/v1/analysis/cost/distribution
+
+Query Parameters: project_id, run_names (쉼표 구분), bins
+Response: 5.4와 동일 구조 + cost_total 필드
 ```
 
 ---
@@ -584,13 +630,41 @@ Request Body (multipart/form-data):
         "metadata_columns": ["difficulty", "source"]
     }
 
-Response:
+Response (동기 완료):
 {
     "dataset_name": "...",
     "items_created": 100,
-    "status": "completed"
+    "items_failed": 0,
+    "failed_items": [],
+    "status": "completed | partial | failed",
+    "upload_id": "uuid"
 }
 ```
+
+### 6.3.1 업로드 진행률 (SSE)
+대용량 파일(>500 행) 업로드 시 SSE로 진행률 스트리밍:
+
+```
+GET /api/v1/datasets/upload/{upload_id}/stream
+
+Response: text/event-stream
+
+event: progress
+data: {"completed": 45, "total": 100, "failed": 0}
+
+event: done
+data: {"dataset_name": "...", "items_created": 100, "items_failed": 0, "status": "completed"}
+
+event: error
+data: {"code": "LANGFUSE_ERROR", "message": "..."}
+```
+
+클라이언트 플로우:
+1. `POST /datasets/upload` 호출 → 즉시 `upload_id` 반환 (202 Accepted)
+2. `GET /datasets/upload/{upload_id}/stream` 구독하여 진행률 수신
+3. 완료 시 done 이벤트로 최종 결과 수신
+
+Redis 저장: `ax:dataset_upload:{upload_id}` (TTL 1시간)
 
 ### 6.4 업로드 미리보기
 ```
@@ -776,7 +850,7 @@ Query Parameters:
 
 ---
 
-## 11.3 데이터셋 파생 생성 (실패 아이템 기반)
+## 12. 데이터셋 파생 생성 (실패 아이템 기반)
 
 ```
 POST /api/v1/datasets/from-items
@@ -873,6 +947,25 @@ Response:
 
 권한: admin (전체), user (본인 제출만)
 ```
+
+### 14.4 승인된 Evaluator 목록 (실험 생성 시 사용)
+```
+GET /api/v1/evaluators/approved
+
+Query Parameters:
+- project_id: string
+
+Response:
+- evaluators: [{ submission_id, name, description, approved_at, approver }]
+
+권한: user 이상 (위저드 Step 3에서 체크박스 목록으로 표시)
+```
+
+**실험 생성 시 참조 방식**: `POST /experiments`의 `evaluators[]`에 다음 형식 추가:
+```json
+{ "type": "approved", "submission_id": "uuid", "weight": 0.3 }
+```
+백엔드가 submission_id로 Redis에서 코드를 조회하여 Custom Code Evaluator와 동일하게 실행.
 
 ### 14.3 제출 승인/반려
 ```
