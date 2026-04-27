@@ -19,6 +19,9 @@ interface ResponseStreamProps {
   meta: MockResponseMeta | null;
   modelName: string;
   promptName?: string;
+  errorMessage?: string | null;
+  scores?: Record<string, number | null> | null;
+  traceId?: string | null;
 }
 
 export function ResponseStream({
@@ -27,6 +30,9 @@ export function ResponseStream({
   meta,
   modelName,
   promptName,
+  errorMessage,
+  scores,
+  traceId,
 }: ResponseStreamProps) {
   if (status === "idle" && text.length === 0) {
     return (
@@ -96,6 +102,40 @@ export function ResponseStream({
             highlight
           />
         </dl>
+      )}
+
+      {scores && Object.keys(scores).length > 0 && (
+        <div className="rounded-md border border-indigo-900/40 bg-indigo-950/10 p-3 text-xs">
+          <div className="mb-1 text-[11px] uppercase tracking-wide text-indigo-300">
+            평가 결과
+          </div>
+          <ul className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+            {Object.entries(scores).map(([name, val]) => (
+              <li
+                key={name}
+                className="flex items-center justify-between gap-2 font-mono tabular-nums text-zinc-200"
+              >
+                <span className="truncate text-zinc-400">{name}</span>
+                <span>{val === null ? "—" : val.toFixed(2)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {errorMessage && (
+        <div className="rounded-md border border-rose-900/40 bg-rose-950/20 p-3 text-xs text-rose-200">
+          <div className="mb-0.5 text-[11px] uppercase tracking-wide text-rose-300">
+            오류
+          </div>
+          <div className="font-mono">{errorMessage}</div>
+        </div>
+      )}
+
+      {traceId && (
+        <div className="text-[11px] text-zinc-500">
+          trace_id <span className="font-mono text-zinc-400">{traceId}</span>
+        </div>
       )}
     </div>
   );

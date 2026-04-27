@@ -21,20 +21,46 @@ import type { CostBreakdown } from "./types";
 
 interface CostChartProps {
   data: CostBreakdown[];
+  distribution?: {
+    items: Array<{
+      run_name: string;
+      model_cost?: number;
+      eval_cost?: number;
+    }>;
+  };
 }
 
 interface ChartRow {
   name: string;
   inputCost: number;
   outputCost: number;
+  modelCost?: number;
+  evalCost?: number;
 }
 
-export function CostChart({ data }: CostChartProps) {
-  const rows: ChartRow[] = data.map((d) => ({
-    name: d.shortLabel,
-    inputCost: Number(d.inputCost.toFixed(4)),
-    outputCost: Number(d.outputCost.toFixed(4)),
-  }));
+export function CostChart({ data, distribution }: CostChartProps) {
+  const hasModelEvalSplit = data.some(
+    (d) => d.modelCost !== undefined || d.evalCost !== undefined
+  );
+
+  const rows: ChartRow[] = data.map((d) => {
+    const dist = distribution?.items?.find((x) => x.run_name === d.runId);
+    return {
+      name: d.shortLabel,
+      inputCost: Number(d.inputCost.toFixed(4)),
+      outputCost: Number(d.outputCost.toFixed(4)),
+      modelCost:
+        d.modelCost ??
+        dist?.model_cost ??
+        undefined,
+      evalCost:
+        d.evalCost ??
+        dist?.eval_cost ??
+        undefined,
+    };
+  });
+
+  void hasModelEvalSplit;
 
   return (
     <div

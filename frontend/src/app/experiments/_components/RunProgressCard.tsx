@@ -1,19 +1,29 @@
 "use client";
 
-import type { Run } from "@/lib/mock/types";
+import type { RunSummary } from "@/lib/types/api";
 import { StatusDot } from "@/components/ui/StatusDot";
 import { ScoreBadge } from "@/components/ui/ScoreBadge";
 import { cn, formatCurrency, formatDuration } from "@/lib/utils";
 
 interface RunProgressCardProps {
-  run: Run;
+  run: RunSummary;
 }
 
 export function RunProgressCard({ run }: RunProgressCardProps) {
+  const itemsCompleted = run.items_completed ?? 0;
+  const itemsTotal = run.items_total ?? 0;
+  const avgScore = run.avg_score ?? run.summary?.avg_score ?? null;
+  const avgLatency =
+    run.avg_latency_ms ??
+    run.summary?.avg_latency_ms ??
+    run.summary?.avg_latency ??
+    null;
+  const totalCost = run.total_cost ?? run.summary?.total_cost ?? 0;
+
   const pct =
-    run.itemsTotal === 0
+    itemsTotal === 0
       ? 0
-      : Math.max(0, Math.min(100, (run.itemsCompleted / run.itemsTotal) * 100));
+      : Math.max(0, Math.min(100, (itemsCompleted / itemsTotal) * 100));
 
   return (
     <div
@@ -25,12 +35,12 @@ export function RunProgressCard({ run }: RunProgressCardProps) {
       <div className="flex min-w-[200px] shrink-0 flex-col gap-1">
         <div className="flex items-center gap-2 text-sm">
           <span className="font-medium text-zinc-100">
-            Run #{run.id.slice(-3)}
+            {run.run_name.slice(-12)}
           </span>
           <StatusDot status={run.status} showLabel={false} />
         </div>
         <div className="text-xs text-zinc-400">
-          v{run.promptVersion} · {run.modelName}
+          v{run.prompt_version} · {run.model}
         </div>
       </div>
 
@@ -50,25 +60,25 @@ export function RunProgressCard({ run }: RunProgressCardProps) {
           />
         </div>
         <div className="w-[88px] text-right font-mono text-xs tabular-nums text-zinc-300">
-          {run.itemsCompleted}/{run.itemsTotal}
+          {itemsCompleted}/{itemsTotal}
         </div>
       </div>
 
       <div className="flex shrink-0 items-center gap-4 text-xs">
         <div className="flex flex-col items-end gap-0.5">
           <span className="text-zinc-500">스코어</span>
-          <ScoreBadge value={run.avgScore} size="sm" />
+          <ScoreBadge value={avgScore} size="sm" />
         </div>
         <div className="flex flex-col items-end gap-0.5">
           <span className="text-zinc-500">지연</span>
           <span className="font-mono tabular-nums text-zinc-200">
-            {run.avgLatencyMs ? formatDuration(run.avgLatencyMs) : "—"}
+            {avgLatency !== null ? formatDuration(avgLatency) : "—"}
           </span>
         </div>
         <div className="flex flex-col items-end gap-0.5">
           <span className="text-zinc-500">비용</span>
           <span className="font-mono tabular-nums text-zinc-200">
-            {formatCurrency(run.totalCostUsd, 3)}
+            {formatCurrency(totalCost, 3)}
           </span>
         </div>
       </div>

@@ -9,9 +9,41 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/Tabs";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { currentUser, evaluators } from "@/lib/mock/data";
-import type { Evaluator, EvaluatorStatus, EvaluatorType } from "@/lib/mock/types";
+import { RequireRole, useAuth } from "@/lib/auth";
+import {
+  useApprovedEvaluators,
+  useApproveEvaluator,
+  useBuiltInEvaluators,
+  useDeprecateEvaluator,
+  useEvaluatorSubmissions,
+  useRejectEvaluator,
+} from "@/lib/hooks/useEvaluators";
+import type {
+  ApprovedEvaluator,
+  BuiltInEvaluatorInfo,
+  Submission,
+} from "@/lib/types/api";
 import { cn, formatNumber, formatRelativeDate } from "@/lib/utils";
+
+type EvaluatorType = "builtin" | "judge" | "custom";
+type EvaluatorStatus = "approved" | "pending" | "rejected" | "deprecated";
+
+interface EvaluatorView {
+  id: string;
+  name: string;
+  type: EvaluatorType;
+  status: EvaluatorStatus;
+  description: string;
+  range: string;
+  submittedBy?: string;
+  submittedAt?: string;
+  approvedBy?: string;
+  approvedAt?: string;
+  usageCount: number;
+  code?: string;
+  judgePrompt?: string;
+  judgeModel?: string;
+}
 
 const STATUS_TONE: Record<
   EvaluatorStatus,
@@ -36,83 +68,211 @@ const TYPE_LABEL: Record<EvaluatorType, string> = {
   custom: "Custom",
 };
 
-const PYTHON_PLACEHOLDER = `def evaluate(output: str, expected: str, metadata: dict) -> float:
-    """
-    Custom evaluator. Returns a score in [0, 1].
-    """
-    if not output or not expected:
-        return 0.0
-    # Example: token overlap as a baseline
-    out_tokens = set(output.lower().split())
-    exp_tokens = set(expected.lower().split())
-    if not exp_tokens:
-        return 0.0
-    return len(out_tokens & exp_tokens) / len(exp_tokens)
-`;
-
-const JUDGE_PROMPT_PLACEHOLDER = `당신은 평가자입니다. 다음 응답이 정답에 비해 얼마나 일치하는지
-0~10점으로 평가하세요.
-
-질문/입력: {{input}}
-정답: {{expected}}
-응답: {{output}}
-
-평가 기준:
-1. 사실성 — 정답과 사실관계가 일치하는가
-2. 완결성 — 핵심 정보가 빠짐없이 포함되는가
-3. 간결성 — 불필요한 부연이 없는가
-
-JSON으로만 응답:
-{ "score": 0~10, "rationale": "한 문장" }`;
-
 const TYPE_TABS: { value: EvaluatorType; label: string }[] = [
   { value: "builtin", label: "내장" },
   { value: "judge", label: "LLM-Judge" },
   { value: "custom", label: "Custom" },
 ];
 
+const DEFAULT_PROJECT_ID = "production-api";
+
+/** Built-in 5 default judge rubric (정적) */
+const DEFAULT_JUDGE_RUBRICS: EvaluatorView[] = [
+  {
+    id: "judge_factuality",
+    name: "Factuality Judge",
+    type: "judge",
+    status: "approved",
+    description: "응답이 정답에 비해 사실적으로 일치하는지 0~10점으로 평가합니다.",
+    range: "0-10",
+    usageCount: 0,
+    judgeModel: "azure/gpt-4o",
+    judgePrompt: `당신은 평가자입니다. 응답이 정답에 비해 얼마나 사실적으로 일치하는지 0~10점으로 평가하세요.
+
+질문/입력: {{input}}
+정답: {{expected}}
+응답: {{output}}
+
+JSON으로만 응답:
+{ "score": 0~10, "rationale": "한 문장" }`,
+  },
+  {
+    id: "judge_relevance",
+    name: "Relevance Judge",
+    type: "judge",
+    status: "approved",
+    description: "응답이 입력 질문과 얼마나 관련 있는지 평가합니다.",
+    range: "0-10",
+    usageCount: 0,
+    judgeModel: "azure/gpt-4o",
+  },
+  {
+    id: "judge_completeness",
+    name: "Completeness Judge",
+    type: "judge",
+    status: "approved",
+    description: "응답이 정답의 핵심 정보를 빠짐없이 포함하는지 평가합니다.",
+    range: "0-10",
+    usageCount: 0,
+    judgeModel: "azure/gpt-4o",
+  },
+  {
+    id: "judge_conciseness",
+    name: "Conciseness Judge",
+    type: "judge",
+    status: "approved",
+    description: "응답이 불필요한 부연 없이 간결한지 평가합니다.",
+    range: "0-10",
+    usageCount: 0,
+    judgeModel: "azure/gpt-4o",
+  },
+  {
+    id: "judge_safety",
+    name: "Safety Judge",
+    type: "judge",
+    status: "approved",
+    description: "응답이 위험하거나 부적절한 내용을 포함하는지 평가합니다.",
+    range: "0-10",
+    usageCount: 0,
+    judgeModel: "azure/gpt-4o",
+  },
+];
+
+function rangeFromBuiltIn(b: BuiltInEvaluatorInfo): string {
+  if (b.range) return `${b.range[0]}-${b.range[1]}`;
+  if (b.return_type === "binary") return "binary";
+  if (b.return_type === "float") return "0-1";
+  return "0-1";
+}
+
+function fromBuiltIn(b: BuiltInEvaluatorInfo): EvaluatorView {
+  return {
+    id: b.name,
+    name: b.name,
+    type: "builtin",
+    status: "approved",
+    description: b.description,
+    range: rangeFromBuiltIn(b),
+    usageCount: 0,
+  };
+}
+
+function fromApproved(a: ApprovedEvaluator): EvaluatorView {
+  return {
+    id: a.submission_id,
+    name: a.name,
+    type: "custom",
+    status: "approved",
+    description: a.description,
+    range: "0-1",
+    submittedAt: a.approved_at,
+    approvedBy: a.approver,
+    approvedAt: a.approved_at,
+    usageCount: 0,
+  };
+}
+
+function fromSubmission(s: Submission): EvaluatorView {
+  return {
+    id: s.submission_id,
+    name: s.name,
+    type: "custom",
+    status: s.status,
+    description: s.description,
+    range: "0-1",
+    submittedBy: s.submitted_by ?? s.submitter,
+    submittedAt: s.submitted_at ?? s.created_at,
+    approvedBy: s.approved_by ?? s.reviewer,
+    approvedAt: s.approved_at ?? s.reviewed_at,
+    usageCount: 0,
+    code: s.code,
+  };
+}
+
 export default function EvaluatorsPage() {
+  const { hasRole, user } = useAuth();
+  const projectId =
+    (user as { currentProjectId?: string } | null)?.currentProjectId ??
+    DEFAULT_PROJECT_ID;
   const [tab, setTab] = useState<EvaluatorType>("builtin");
   const [query, setQuery] = useState("");
-  const [selectedId, setSelectedId] = useState<string | null>(
-    evaluators.find((e) => e.type === "builtin")?.id ?? null
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const builtInQuery = useBuiltInEvaluators();
+  const approvedQuery = useApprovedEvaluators(projectId);
+  const pendingQuery = useEvaluatorSubmissions(projectId, "pending");
+  const rejectedQuery = useEvaluatorSubmissions(projectId, "rejected");
+  const deprecatedQuery = useEvaluatorSubmissions(projectId, "deprecated");
+
+  const builtInList: EvaluatorView[] = useMemo(
+    () => (builtInQuery.data?.evaluators ?? []).map(fromBuiltIn),
+    [builtInQuery.data]
   );
 
-  const list = useMemo(() => {
+  const customApproved: EvaluatorView[] = useMemo(
+    () => (approvedQuery.data?.evaluators ?? []).map(fromApproved),
+    [approvedQuery.data]
+  );
+  const customPending: EvaluatorView[] = useMemo(
+    () => (pendingQuery.data?.submissions ?? []).map(fromSubmission),
+    [pendingQuery.data]
+  );
+  const customRejected: EvaluatorView[] = useMemo(
+    () => (rejectedQuery.data?.submissions ?? []).map(fromSubmission),
+    [rejectedQuery.data]
+  );
+  const customDeprecated: EvaluatorView[] = useMemo(
+    () => (deprecatedQuery.data?.submissions ?? []).map(fromSubmission),
+    [deprecatedQuery.data]
+  );
+
+  const allCustom = useMemo(
+    () => [...customPending, ...customApproved, ...customRejected, ...customDeprecated],
+    [customPending, customApproved, customRejected, customDeprecated]
+  );
+
+  const list: EvaluatorView[] = useMemo(() => {
+    let base: EvaluatorView[] = [];
+    if (tab === "builtin") base = builtInList;
+    else if (tab === "judge") base = DEFAULT_JUDGE_RUBRICS;
+    else base = allCustom;
     const q = query.trim().toLowerCase();
-    return evaluators
-      .filter((e) => e.type === tab)
-      .filter(
-        (e) =>
-          !q ||
-          e.name.toLowerCase().includes(q) ||
-          e.description.toLowerCase().includes(q)
-      );
-  }, [tab, query]);
+    if (!q) return base;
+    return base.filter(
+      (e) =>
+        e.name.toLowerCase().includes(q) ||
+        e.description.toLowerCase().includes(q)
+    );
+  }, [tab, query, builtInList, allCustom]);
 
-  const selected =
-    evaluators.find((e) => e.id === selectedId && e.type === tab) ?? list[0] ?? null;
+  const selected: EvaluatorView | null = useMemo(() => {
+    return list.find((e) => e.id === selectedId) ?? list[0] ?? null;
+  }, [list, selectedId]);
 
-  const pending = useMemo(
-    () => evaluators.filter((e) => e.status === "pending"),
-    []
-  );
-
-  const isAdmin = currentUser.role === "admin";
+  const isAdmin = hasRole?.("admin") ?? false;
 
   const onTabChange = (next: string) => {
     const t = next as EvaluatorType;
     setTab(t);
-    const first = evaluators.find((e) => e.type === t);
-    setSelectedId(first?.id ?? null);
+    setSelectedId(null);
+    setActionError(null);
   };
 
   const jumpToFirstPending = () => {
-    if (pending.length === 0) return;
-    const first = pending[0];
-    setTab(first.type);
-    setSelectedId(first.id);
+    if (customPending.length === 0) return;
+    setTab("custom");
+    setSelectedId(customPending[0].id);
+    setActionError(null);
   };
+
+  const isLoading =
+    (tab === "builtin" && builtInQuery.isLoading) ||
+    (tab === "custom" &&
+      (pendingQuery.isLoading ||
+        approvedQuery.isLoading ||
+        rejectedQuery.isLoading ||
+        deprecatedQuery.isLoading));
 
   return (
     <div className="px-8 py-6">
@@ -122,7 +282,7 @@ export default function EvaluatorsPage() {
       />
 
       {/* Governance queue */}
-      {pending.length > 0 && (
+      {customPending.length > 0 && (
         <Card className="mb-5 border-amber-900/60 bg-amber-950/20">
           <CardContent className="flex items-center justify-between gap-4">
             <div className="flex items-start gap-3">
@@ -134,7 +294,7 @@ export default function EvaluatorsPage() {
               </span>
               <div>
                 <h3 className="text-sm font-semibold text-zinc-100">
-                  검토 대기 {pending.length}건
+                  검토 대기 {customPending.length}건
                 </h3>
                 <p className="mt-0.5 text-xs text-zinc-400">
                   Custom 평가 함수가 승인 대기 중입니다. 승인 전에는 일부
@@ -182,7 +342,13 @@ export default function EvaluatorsPage() {
             </div>
           </div>
           <ul className="max-h-[calc(100dvh-280px)] divide-y divide-zinc-800 overflow-y-auto">
-            {list.length === 0 ? (
+            {isLoading ? (
+              <li className="space-y-2 p-4">
+                {[0, 1, 2].map((i) => (
+                  <div key={i} className="h-12 animate-pulse rounded bg-zinc-900/50" />
+                ))}
+              </li>
+            ) : list.length === 0 ? (
               <li className="p-4">
                 <EmptyState
                   title="결과 없음"
@@ -196,7 +362,10 @@ export default function EvaluatorsPage() {
                   <li key={e.id}>
                     <button
                       type="button"
-                      onClick={() => setSelectedId(e.id)}
+                      onClick={() => {
+                        setSelectedId(e.id);
+                        setActionError(null);
+                      }}
                       className={cn(
                         "flex w-full flex-col gap-1.5 px-4 py-3 text-left transition-colors",
                         active && "bg-indigo-500/10",
@@ -238,7 +407,12 @@ export default function EvaluatorsPage() {
         {/* Right: detail */}
         <Card>
           {selected ? (
-            <EvaluatorDetail evaluator={selected} isAdmin={isAdmin} />
+            <EvaluatorDetail
+              evaluator={selected}
+              isAdmin={isAdmin}
+              actionError={actionError}
+              setActionError={setActionError}
+            />
           ) : (
             <CardContent>
               <EmptyState
@@ -256,29 +430,65 @@ export default function EvaluatorsPage() {
 function EvaluatorDetail({
   evaluator,
   isAdmin,
+  actionError,
+  setActionError,
 }: {
-  evaluator: Evaluator;
+  evaluator: EvaluatorView;
   isAdmin: boolean;
+  actionError: string | null;
+  setActionError: (m: string | null) => void;
 }) {
-  const trend = useMemo(() => {
-    // Deterministic mock 7-day trend
-    let h = 0;
-    for (let i = 0; i < evaluator.id.length; i++)
-      h = (h * 31 + evaluator.id.charCodeAt(i)) >>> 0;
-    return Array.from({ length: 7 }).map(() => {
-      h = (h * 9301 + 49297) >>> 0;
-      return h % 60;
-    });
-  }, [evaluator.id]);
-  const monthlyTotal = trend.reduce((a, b) => a + b, 0);
+  const approveMutation = useApproveEvaluator();
+  const rejectMutation = useRejectEvaluator();
+  const deprecateMutation = useDeprecateEvaluator();
+  const [rejectReason, setRejectReason] = useState("");
+  const [showRejectForm, setShowRejectForm] = useState(false);
+
+  const handleApprove = async () => {
+    setActionError(null);
+    try {
+      await approveMutation.mutateAsync({ submissionId: evaluator.id });
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const handleReject = async () => {
+    if (!rejectReason.trim()) {
+      setActionError("반려 사유를 입력해 주세요.");
+      return;
+    }
+    setActionError(null);
+    try {
+      await rejectMutation.mutateAsync({
+        submissionId: evaluator.id,
+        payload: { reason: rejectReason.trim() },
+      });
+      setRejectReason("");
+      setShowRejectForm(false);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const handleDeprecate = async () => {
+    if (!confirm(`'${evaluator.name}'을(를) Deprecated로 전환하시겠습니까?`)) return;
+    setActionError(null);
+    try {
+      await deprecateMutation.mutateAsync({
+        submissionId: evaluator.id,
+        reason: "manual deprecation",
+      });
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err));
+    }
+  };
 
   return (
     <div className="flex h-full flex-col">
       <div className="border-b border-zinc-800 px-5 py-4">
         <div className="flex flex-wrap items-center gap-2">
-          <h2 className="text-base font-semibold text-zinc-50">
-            {evaluator.name}
-          </h2>
+          <h2 className="text-base font-semibold text-zinc-50">{evaluator.name}</h2>
           <Badge tone={STATUS_TONE[evaluator.status]}>
             {STATUS_LABEL[evaluator.status]}
           </Badge>
@@ -292,25 +502,8 @@ function EvaluatorDetail({
         {/* Usage stats */}
         <section className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           <Stat label="누적 사용 횟수" value={formatNumber(evaluator.usageCount)} />
-          <Stat label="최근 30일 (mock)" value={formatNumber(monthlyTotal)} />
           <Stat label="범위" value={evaluator.range} />
-        </section>
-        <section>
-          <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
-            최근 7일 사용 트렌드
-          </h3>
-          <div className="flex items-end gap-1.5 rounded-md border border-zinc-800 bg-zinc-950/40 p-3">
-            {trend.map((v, i) => (
-              <div key={i} className="flex flex-1 flex-col items-center gap-1">
-                <div
-                  className="w-full rounded-sm bg-indigo-500/40"
-                  style={{ height: `${4 + v}px` }}
-                  aria-hidden
-                />
-                <span className="text-[10px] text-zinc-500">{v}</span>
-              </div>
-            ))}
-          </div>
+          <Stat label="타입" value={TYPE_LABEL[evaluator.type]} />
         </section>
 
         {evaluator.type === "custom" && (
@@ -344,12 +537,16 @@ function EvaluatorDetail({
                 </dd>
               </div>
             </dl>
-            <h3 className="mt-4 mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
-              평가 코드
-            </h3>
-            <pre className="overflow-x-auto rounded-md border border-zinc-800 bg-zinc-950 p-3 font-mono text-xs leading-relaxed text-zinc-200">
-              {PYTHON_PLACEHOLDER}
-            </pre>
+            {evaluator.code && (
+              <>
+                <h3 className="mt-4 mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+                  평가 코드
+                </h3>
+                <pre className="overflow-x-auto rounded-md border border-zinc-800 bg-zinc-950 p-3 font-mono text-xs leading-relaxed text-zinc-200">
+                  {evaluator.code}
+                </pre>
+              </>
+            )}
           </section>
         )}
 
@@ -358,13 +555,59 @@ function EvaluatorDetail({
             <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
               Judge 모델
             </h3>
-            <Badge tone="info">azure/gpt-4o</Badge>
-            <h3 className="mt-4 mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
-              평가 프롬프트
-            </h3>
-            <pre className="whitespace-pre-wrap rounded-md border border-zinc-800 bg-zinc-950 p-3 font-mono text-xs leading-relaxed text-zinc-200">
-              {JUDGE_PROMPT_PLACEHOLDER}
-            </pre>
+            <Badge tone="info">{evaluator.judgeModel ?? "azure/gpt-4o"}</Badge>
+            {evaluator.judgePrompt && (
+              <>
+                <h3 className="mt-4 mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+                  평가 프롬프트
+                </h3>
+                <pre className="whitespace-pre-wrap rounded-md border border-zinc-800 bg-zinc-950 p-3 font-mono text-xs leading-relaxed text-zinc-200">
+                  {evaluator.judgePrompt}
+                </pre>
+              </>
+            )}
+          </section>
+        )}
+
+        {actionError && (
+          <div className="rounded-md border border-rose-900/60 bg-rose-950/30 px-3 py-2 text-xs text-rose-200">
+            {actionError}
+          </div>
+        )}
+
+        {showRejectForm && (
+          <section className="rounded-md border border-zinc-800 bg-zinc-950/40 p-3 space-y-2">
+            <label htmlFor="reject-reason" className="text-xs font-medium text-zinc-300">
+              반려 사유
+            </label>
+            <textarea
+              id="reject-reason"
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              rows={3}
+              placeholder="반려 사유를 명확히 작성해 주세요"
+              className="w-full rounded-md border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-xs text-zinc-100 focus:border-indigo-500 focus:outline-none"
+            />
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setShowRejectForm(false);
+                  setRejectReason("");
+                }}
+              >
+                취소
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={handleReject}
+                disabled={rejectMutation.isPending}
+              >
+                {rejectMutation.isPending ? "반려 중..." : "반려 확정"}
+              </Button>
+            </div>
           </section>
         )}
       </div>
@@ -376,30 +619,34 @@ function EvaluatorDetail({
             관리자만 상태를 변경할 수 있습니다.
           </span>
         )}
-        {evaluator.status === "pending" && (
-          <>
-            <Button variant="outline" disabled={!isAdmin}>
+        {evaluator.type === "custom" && evaluator.status === "pending" && (
+          <RequireRole role="admin">
+            <Button
+              variant="outline"
+              onClick={() => setShowRejectForm(true)}
+              disabled={rejectMutation.isPending || approveMutation.isPending}
+            >
               반려
             </Button>
-            <Button variant="primary" disabled={!isAdmin}>
-              승인
+            <Button
+              variant="primary"
+              onClick={handleApprove}
+              disabled={approveMutation.isPending || rejectMutation.isPending}
+            >
+              {approveMutation.isPending ? "승인 중..." : "승인"}
             </Button>
-          </>
+          </RequireRole>
         )}
-        {evaluator.status === "approved" && (
-          <Button variant="outline" disabled={!isAdmin}>
-            Deprecated로 전환
-          </Button>
-        )}
-        {evaluator.status === "deprecated" && (
-          <Button variant="primary" disabled={!isAdmin}>
-            재활성화
-          </Button>
-        )}
-        {evaluator.status === "rejected" && (
-          <Button variant="outline" disabled={!isAdmin}>
-            재제출 요청
-          </Button>
+        {evaluator.type === "custom" && evaluator.status === "approved" && (
+          <RequireRole role="admin">
+            <Button
+              variant="outline"
+              onClick={handleDeprecate}
+              disabled={deprecateMutation.isPending}
+            >
+              {deprecateMutation.isPending ? "전환 중..." : "Deprecated로 전환"}
+            </Button>
+          </RequireRole>
         )}
       </div>
     </div>

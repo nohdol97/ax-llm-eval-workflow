@@ -20,9 +20,14 @@ import {
 } from "./colors";
 import type { ItemResult, SelectedRun } from "./types";
 
+interface DistributionResponse {
+  bins: Array<{ lo: number; hi: number; counts: Record<string, number> }>;
+}
+
 interface ScoreDistributionChartProps {
   runs: SelectedRun[];
   itemResults: ItemResult[];
+  distribution?: DistributionResponse;
 }
 
 const BUCKETS = 10;
@@ -35,8 +40,22 @@ interface BucketRow {
 export function ScoreDistributionChart({
   runs,
   itemResults,
+  distribution,
 }: ScoreDistributionChartProps) {
   const data = useMemo<BucketRow[]>(() => {
+    // Prefer server-provided distribution
+    if (distribution?.bins?.length) {
+      return distribution.bins.map((b) => {
+        const row: BucketRow = {
+          bucket: `${b.lo.toFixed(1)}-${b.hi.toFixed(1)}`,
+        };
+        runs.forEach((r) => {
+          row[r.id] = b.counts?.[r.id] ?? 0;
+        });
+        return row;
+      });
+    }
+
     const buckets: BucketRow[] = Array.from({ length: BUCKETS }).map((_, i) => {
       const lo = (i / BUCKETS).toFixed(1);
       const hi = ((i + 1) / BUCKETS).toFixed(1);
@@ -62,7 +81,7 @@ export function ScoreDistributionChart({
     });
 
     return buckets;
-  }, [runs, itemResults]);
+  }, [runs, itemResults, distribution]);
 
   return (
     <div

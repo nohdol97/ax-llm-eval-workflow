@@ -6,25 +6,30 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
-import { prompts } from "@/lib/mock/data";
-import type { Prompt } from "@/lib/mock/types";
-import { formatNumber, formatRelativeDate } from "@/lib/utils";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { useAuth } from "@/lib/auth";
+import { usePromptList } from "@/lib/hooks/usePrompts";
+import type { PromptSummary } from "@/lib/types/api";
+import { formatRelativeDate } from "@/lib/utils";
 import { PromptDetailPanel } from "./_components/PromptDetailPanel";
 
-const LABEL_TONE: Record<
-  "production" | "staging" | "draft",
-  "success" | "warning" | "neutral"
-> = {
+const LABEL_TONE: Record<string, "success" | "warning" | "neutral"> = {
   production: "success",
   staging: "warning",
   draft: "neutral",
 };
 
-export default function PromptsPage() {
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+const DEFAULT_PROJECT_ID = "production-api";
 
-  const selected: Prompt | null =
-    prompts.find((p) => p.id === selectedId) ?? null;
+export default function PromptsPage() {
+  const { user } = useAuth();
+  const projectId =
+    (user as { currentProjectId?: string } | null)?.currentProjectId ??
+    DEFAULT_PROJECT_ID;
+  const [selectedName, setSelectedName] = useState<string | null>(null);
+
+  const { data, isLoading, isError, refetch } = usePromptList(projectId);
+  const list: PromptSummary[] = data?.items ?? [];
 
   return (
     <div className="px-8 py-6">
@@ -38,81 +43,108 @@ export default function PromptsPage() {
         }
       />
 
-      <Card className="overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="border-b border-zinc-800 bg-zinc-950/40 text-xs text-zinc-400">
-              <tr>
-                <th scope="col" className="px-4 py-2 text-left font-medium">
-                  이름
-                </th>
-                <th scope="col" className="px-4 py-2 text-left font-medium">
-                  최신 버전
-                </th>
-                <th scope="col" className="px-4 py-2 text-left font-medium">
-                  라벨
-                </th>
-                <th scope="col" className="px-4 py-2 text-left font-medium">
-                  최근 사용
-                </th>
-                <th scope="col" className="px-4 py-2 text-right font-medium">
-                  사용 횟수
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {prompts.map((p) => (
-                <tr
-                  key={p.id}
-                  onClick={() => setSelectedId(p.id)}
-                  aria-label={`${p.name} 상세 열기`}
-                  className="cursor-pointer border-t border-zinc-800 transition-colors hover:bg-zinc-900/60"
-                >
-                  <td className="px-4 py-3">
-                    <div className="flex flex-col">
-                      <span className="font-medium text-zinc-100">
-                        {p.name}
-                      </span>
-                      {p.description && (
-                        <span className="mt-0.5 line-clamp-1 text-xs text-zinc-500">
-                          {p.description}
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 font-mono text-xs text-zinc-300">
-                    v{p.latestVersion}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex flex-wrap gap-1">
-                      {p.labels.length === 0 ? (
-                        <span className="text-xs text-zinc-500">—</span>
-                      ) : (
-                        p.labels.map((l) => (
-                          <Badge key={l} tone={LABEL_TONE[l]}>
-                            {l}
-                          </Badge>
-                        ))
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-xs text-zinc-400">
-                    {formatRelativeDate(p.lastUsed)}
-                  </td>
-                  <td className="px-4 py-3 text-right font-mono tabular-nums text-xs text-zinc-300">
-                    {formatNumber(p.usageCount)}
-                  </td>
+      {isLoading ? (
+        <Card>
+          <div className="space-y-2 p-4">
+            {[0, 1, 2, 3, 4].map((i) => (
+              <div key={i} className="h-10 animate-pulse rounded bg-zinc-900/50" />
+            ))}
+          </div>
+        </Card>
+      ) : isError ? (
+        <EmptyState
+          title="프롬프트를 불러오지 못했습니다"
+          description="네트워크 또는 서버 오류입니다."
+          primaryAction={
+            <Button variant="primary" onClick={() => refetch?.()}>
+              재시도
+            </Button>
+          }
+        />
+      ) : list.length === 0 ? (
+        <EmptyState
+          title="프롬프트가 없습니다"
+          description="새 프롬프트를 만들어 시작하세요."
+        />
+      ) : (
+        <Card className="overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="border-b border-zinc-800 bg-zinc-950/40 text-xs text-zinc-400">
+                <tr>
+                  <th scope="col" className="px-4 py-2 text-left font-medium">
+                    이름
+                  </th>
+                  <th scope="col" className="px-4 py-2 text-left font-medium">
+                    최신 버전
+                  </th>
+                  <th scope="col" className="px-4 py-2 text-left font-medium">
+                    라벨
+                  </th>
+                  <th scope="col" className="px-4 py-2 text-left font-medium">
+                    생성일
+                  </th>
+                  <th scope="col" className="px-4 py-2 text-left font-medium">
+                    태그
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+              </thead>
+              <tbody>
+                {list.map((p) => (
+                  <tr
+                    key={p.name}
+                    onClick={() => setSelectedName(p.name)}
+                    aria-label={`${p.name} 상세 열기`}
+                    className="cursor-pointer border-t border-zinc-800 transition-colors hover:bg-zinc-900/60"
+                  >
+                    <td className="px-4 py-3">
+                      <span className="font-medium text-zinc-100">{p.name}</span>
+                    </td>
+                    <td className="px-4 py-3 font-mono text-xs text-zinc-300">
+                      v{p.latest_version}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-wrap gap-1">
+                        {p.labels.length === 0 ? (
+                          <span className="text-xs text-zinc-500">—</span>
+                        ) : (
+                          p.labels.map((l) => (
+                            <Badge key={l} tone={LABEL_TONE[l] ?? "neutral"}>
+                              {l}
+                            </Badge>
+                          ))
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-xs text-zinc-400">
+                      {p.created_at ? formatRelativeDate(p.created_at) : "—"}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-wrap gap-1">
+                        {(p.tags ?? []).length === 0 ? (
+                          <span className="text-xs text-zinc-500">—</span>
+                        ) : (
+                          p.tags.map((t) => (
+                            <Badge key={t} tone="muted">
+                              {t}
+                            </Badge>
+                          ))
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
 
       <PromptDetailPanel
-        prompt={selected}
-        open={!!selectedId}
-        onClose={() => setSelectedId(null)}
+        promptName={selectedName}
+        projectId={projectId}
+        open={!!selectedName}
+        onClose={() => setSelectedName(null)}
       />
     </div>
   );

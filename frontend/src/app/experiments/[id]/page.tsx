@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { notFound, useParams } from "next/navigation";
+import { notFound, useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import {
   ArrowRight,
@@ -11,17 +11,28 @@ import {
   Gauge,
   Pause,
   Play,
+  RotateCw,
   Square,
-  Target,
+  Trash2,
   TrendingUp,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { PageHeader } from "@/components/ui/PageHeader";
-import { ScoreBadge } from "@/components/ui/ScoreBadge";
 import { StatusDot } from "@/components/ui/StatusDot";
-import { evaluators, experiments, runsByExperiment } from "@/lib/mock/data";
-import type { ExperimentStatus, Run } from "@/lib/mock/types";
+import { RequireRole } from "@/lib/auth";
+import {
+  useDeleteExperiment,
+  useExperimentControl,
+  useExperimentDetail,
+  type ExperimentControlAction,
+} from "@/lib/hooks/useExperiments";
+import { useExperimentStream } from "@/lib/hooks/useSSE";
+import type {
+  ExperimentStatus,
+  ExperimentStreamEvent,
+  RunSummary,
+} from "@/lib/types/api";
 import {
   cn,
   formatCurrency,
@@ -31,71 +42,101 @@ import {
 } from "@/lib/utils";
 import { RunProgressCard } from "../_components/RunProgressCard";
 
+function getRunAvgScore(r: RunSummary): number | null {
+  return (
+    r.avg_score ?? r.summary?.avg_score ?? null
+  );
+}
+
+function getRunCost(r: RunSummary): number {
+  return r.total_cost ?? r.summary?.total_cost ?? 0;
+}
+
+function getRunLatency(r: RunSummary): number | null {
+  return (
+    r.avg_latency_ms ??
+    r.summary?.avg_latency_ms ??
+    r.summary?.avg_latency ??
+    null
+  );
+}
+
 export default function ExperimentDetailPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const experimentId = params.id;
 
-  const experiment = useMemo(
-    () => experiments.find((e) => e.id === experimentId),
-    [experimentId]
+  const { data: experiment, isLoading, error, refetch } = useExperimentDetail(
+    experimentId
   );
 
-  const initialRuns = useMemo<Run[]>(
-    () => runsByExperiment[experimentId] ?? [],
-    [experimentId]
+  const runs = useMemo<RunSummary[]>(
+    () => experiment?.runs ?? [],
+    [experiment]
   );
+  const experimentStatus: ExperimentStatus =
+    experiment?.status ?? "pending";
 
-  const [runs, setRuns] = useState<Run[]>(initialRuns);
-  const [experimentStatus, setExperimentStatus] = useState<ExperimentStatus>(
-    experiment?.status ?? "completed"
-  );
+  // SSE stream — only when running
+  const [progress, setProgress] = useState<{
+    completed: number;
+    total: number;
+  } | null>(null);
 
-  // Sync local state when params change
+  useExperimentStream({
+    experimentId: experimentStatus === "running" ? experimentId : null,
+    enabled: experimentStatus === "running",
+    onEvent: (evt: ExperimentStreamEvent) => {
+      switch (evt.type) {
+        case "progress":
+          setProgress({
+            completed: evt.data.completed,
+            total: evt.data.total,
+          });
+          break;
+        case "run_complete":
+          refetch();
+          break;
+        case "experiment_complete":
+          refetch();
+          router.push(`/compare?experiment=${experimentId}`);
+          break;
+        default:
+          break;
+      }
+    },
+  });
+
+  const control = useExperimentControl();
+  const deleteExp = useDeleteExperiment();
+
+  // Reset progress when experiment id changes
   useEffect(() => {
-    setRuns(initialRuns);
-    setExperimentStatus(experiment?.status ?? "completed");
-  }, [initialRuns, experiment?.status]);
+    setProgress(null);
+  }, [experimentId]);
 
-  // Tick simulation: when experiment is "running", incrementally advance any
-  // running run by +1 item per second until it completes.
-  useEffect(() => {
-    if (experimentStatus !== "running") return;
-    const interval = window.setInterval(() => {
-      setRuns((prev) => {
-        let anyRunning = false;
-        const next = prev.map((r) => {
-          if (r.status !== "running") return r;
-          if (r.itemsCompleted >= r.itemsTotal) {
-            return { ...r, status: "completed" as ExperimentStatus };
-          }
-          anyRunning = true;
-          const inc = Math.min(1, r.itemsTotal - r.itemsCompleted);
-          const itemsCompleted = r.itemsCompleted + inc;
-          const isDone = itemsCompleted >= r.itemsTotal;
-          return {
-            ...r,
-            itemsCompleted,
-            status: isDone
-              ? ("completed" as ExperimentStatus)
-              : ("running" as ExperimentStatus),
-          };
-        });
-        if (!anyRunning) {
-          // Auto-complete experiment when no more running runs
-          setExperimentStatus("completed");
-        }
-        return next;
-      });
-    }, 1000);
-    return () => window.clearInterval(interval);
-  }, [experimentStatus]);
-
-  if (!experiment) {
+  if (error) {
     notFound();
   }
+  if (isLoading || !experiment) {
+    return (
+      <div className="px-6 py-6">
+        <div className="rounded-md border border-zinc-800 bg-zinc-900 px-4 py-8 text-center text-sm text-zinc-500">
+          실험 정보를 불러오는 중…
+        </div>
+      </div>
+    );
+  }
 
-  const totalItems = runs.reduce((sum, r) => sum + r.itemsTotal, 0);
-  const completedItems = runs.reduce((sum, r) => sum + r.itemsCompleted, 0);
+  const totalItems =
+    progress?.total ??
+    experiment.progress?.total ??
+    runs.reduce((s, r) => s + (r.items_total ?? 0), 0);
+  const completedItems =
+    progress?.completed ??
+    experiment.progress?.completed ??
+    experiment.progress?.processed ??
+    runs.reduce((s, r) => s + (r.items_completed ?? 0), 0);
   const overallPct =
     totalItems === 0
       ? 0
@@ -103,24 +144,25 @@ export default function ExperimentDetailPage() {
 
   const completedRuns = runs.filter((r) => r.status === "completed").length;
 
-  const aggregateScore = useMemo(() => {
-    const scored = runs.filter((r) => r.avgScore !== null);
+  const aggregateScore = (() => {
+    const scored = runs
+      .map((r) => getRunAvgScore(r))
+      .filter((v): v is number => v !== null);
     if (scored.length === 0) return null;
-    const sum = scored.reduce((s, r) => s + (r.avgScore ?? 0), 0);
-    return sum / scored.length;
-  }, [runs]);
+    return scored.reduce((s, v) => s + v, 0) / scored.length;
+  })();
 
-  const totalCost = runs.reduce((s, r) => s + r.totalCostUsd, 0);
+  const totalCost = runs.reduce((s, r) => s + getRunCost(r), 0);
 
-  const aggregateLatency = useMemo(() => {
-    const withLat = runs.filter((r) => r.avgLatencyMs !== null);
-    if (withLat.length === 0) return null;
-    const sum = withLat.reduce((s, r) => s + (r.avgLatencyMs ?? 0), 0);
-    return sum / withLat.length;
-  }, [runs]);
+  const aggregateLatency = (() => {
+    const lats = runs
+      .map((r) => getRunLatency(r))
+      .filter((v): v is number => v !== null);
+    if (lats.length === 0) return null;
+    return lats.reduce((s, v) => s + v, 0) / lats.length;
+  })();
 
-  // Estimated remaining time: items left × avg latency per run, divided by parallel runs
-  const remainingTimeMs = useMemo(() => {
+  const remainingTimeMs = (() => {
     if (experimentStatus !== "running") return null;
     const remaining = totalItems - completedItems;
     if (remaining <= 0) return 0;
@@ -130,25 +172,30 @@ export default function ExperimentDetailPage() {
       runs.filter((r) => r.status === "running").length
     );
     return Math.round((remaining * lat) / parallelRuns);
-  }, [
-    experimentStatus,
-    totalItems,
-    completedItems,
-    aggregateLatency,
-    runs,
-  ]);
+  })();
 
-  const usedEvaluators = useMemo(
-    () =>
-      experiment.evaluatorIds
-        .map((id) => evaluators.find((e) => e.id === id))
-        .filter((e): e is NonNullable<typeof e> => !!e),
-    [experiment.evaluatorIds]
-  );
+  // Pull metadata from config_snapshot for display
+  const cfg = experiment.config_snapshot ?? {};
+  const promptName =
+    (cfg.prompt_configs as Array<{ name: string }> | undefined)?.[0]?.name ??
+    "—";
+  const promptVersions =
+    ((cfg.prompt_configs as Array<{ version?: number }> | undefined) ?? [])
+      .map((p) => p.version)
+      .filter((v): v is number => typeof v === "number");
+  const datasetName = (cfg.dataset_name as string | undefined) ?? "—";
 
-  const handlePause = () => setExperimentStatus("paused");
-  const handleResume = () => setExperimentStatus("running");
-  const handleCancel = () => setExperimentStatus("cancelled");
+  const callControl = (action: ExperimentControlAction) => {
+    control.mutate({ experimentId, action });
+  };
+  const callDelete = () => {
+    deleteExp.mutate(
+      { experimentId },
+      { onSuccess: () => router.push("/experiments") }
+    );
+  };
+
+  const failedRunCount = runs.filter((r) => r.status === "failed").length;
 
   return (
     <div className="px-6 py-6">
@@ -158,16 +205,16 @@ export default function ExperimentDetailPage() {
           <span className="flex flex-wrap items-center gap-3 text-xs">
             <StatusDot status={experimentStatus} />
             <span className="text-zinc-500">
-              생성 {formatRelativeDate(experiment.createdAt)} ·{" "}
+              생성 {formatRelativeDate(experiment.created_at)} ·{" "}
               {experiment.owner}
             </span>
             <span className="text-zinc-500">
-              프롬프트 {experiment.promptName} (
-              {experiment.promptVersions.map((v) => `v${v}`).join(" + ")})
+              프롬프트 {promptName}
+              {promptVersions.length > 0 && (
+                <> ({promptVersions.map((v) => `v${v}`).join(" + ")})</>
+              )}
             </span>
-            <span className="text-zinc-500">
-              데이터셋 {experiment.datasetName} ({experiment.itemCount} items)
-            </span>
+            <span className="text-zinc-500">데이터셋 {datasetName}</span>
           </span>
         }
         actions={
@@ -176,7 +223,8 @@ export default function ExperimentDetailPage() {
               <>
                 <Button
                   variant="secondary"
-                  onClick={handlePause}
+                  onClick={() => callControl("pause")}
+                  disabled={control.isPending}
                   aria-label="실험 일시정지"
                 >
                   <Pause className="h-4 w-4" aria-hidden />
@@ -184,7 +232,8 @@ export default function ExperimentDetailPage() {
                 </Button>
                 <Button
                   variant="destructive"
-                  onClick={handleCancel}
+                  onClick={() => callControl("cancel")}
+                  disabled={control.isPending}
                   aria-label="실험 중단"
                 >
                   <Square className="h-4 w-4" aria-hidden />
@@ -196,7 +245,8 @@ export default function ExperimentDetailPage() {
               <>
                 <Button
                   variant="primary"
-                  onClick={handleResume}
+                  onClick={() => callControl("resume")}
+                  disabled={control.isPending}
                   aria-label="실험 재개"
                 >
                   <Play className="h-4 w-4" aria-hidden />
@@ -204,7 +254,8 @@ export default function ExperimentDetailPage() {
                 </Button>
                 <Button
                   variant="destructive"
-                  onClick={handleCancel}
+                  onClick={() => callControl("cancel")}
+                  disabled={control.isPending}
                   aria-label="실험 중단"
                 >
                   <Square className="h-4 w-4" aria-hidden />
@@ -212,20 +263,56 @@ export default function ExperimentDetailPage() {
                 </Button>
               </>
             )}
+            {experimentStatus === "failed" && failedRunCount > 0 && (
+              <Button
+                variant="secondary"
+                onClick={() => callControl("retry-failed")}
+                disabled={control.isPending}
+                aria-label="실패한 Run 재시도"
+              >
+                <RotateCw className="h-4 w-4" aria-hidden />
+                실패 재시도
+              </Button>
+            )}
             {experimentStatus === "completed" && (
               <Link
-                href={`/compare?experiment=${experiment.id}`}
+                href={`/compare?experiment=${experiment.experiment_id}`}
                 className="inline-flex h-8 items-center gap-2 rounded-md bg-indigo-500 px-3 text-sm font-medium text-white shadow-sm transition-colors hover:bg-indigo-400"
               >
                 결과 비교
                 <ArrowRight className="h-4 w-4" aria-hidden />
               </Link>
             )}
+            <RequireRole role="admin">
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  if (confirm("이 실험을 삭제하시겠습니까?")) {
+                    callDelete();
+                  }
+                }}
+                disabled={deleteExp.isPending}
+                aria-label="실험 삭제 (관리자)"
+              >
+                <Trash2 className="h-4 w-4" aria-hidden />
+                삭제
+              </Button>
+            </RequireRole>
           </div>
         }
       />
 
-      {/* a11y live region for status changes */}
+      {control.error && (
+        <div className="mb-4 rounded-md border border-rose-900/40 bg-rose-950/20 px-4 py-2 text-sm text-rose-200">
+          제어 요청 실패: {(control.error as Error).message}
+        </div>
+      )}
+      {deleteExp.error && (
+        <div className="mb-4 rounded-md border border-rose-900/40 bg-rose-950/20 px-4 py-2 text-sm text-rose-200">
+          삭제 실패: {(deleteExp.error as Error).message}
+        </div>
+      )}
+
       <div className="sr-only" role="status" aria-live="polite">
         실험 상태: {experimentStatus} · 진행률 {overallPct.toFixed(1)}%
       </div>
@@ -299,7 +386,6 @@ export default function ExperimentDetailPage() {
         </CardContent>
       </Card>
 
-      {/* Live cost/eta when running */}
       {experimentStatus === "running" && (
         <section className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="rounded-md border border-amber-900/40 bg-amber-950/10 px-4 py-3">
@@ -328,8 +414,8 @@ export default function ExperimentDetailPage() {
         <CardHeader className="flex items-center justify-between">
           <CardTitle>Runs ({runs.length})</CardTitle>
           <span className="text-xs text-zinc-500">
-            {completedRuns} 완료 · {runs.filter((r) => r.status === "running").length}{" "}
-            진행중
+            {completedRuns} 완료 ·{" "}
+            {runs.filter((r) => r.status === "running").length} 진행중
           </span>
         </CardHeader>
         <CardContent>
@@ -338,86 +424,11 @@ export default function ExperimentDetailPage() {
           ) : (
             <ul className="space-y-2">
               {runs.map((run) => (
-                <li key={run.id}>
+                <li key={run.run_name}>
                   <RunProgressCard run={run} />
                 </li>
               ))}
             </ul>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Evaluator score table */}
-      <Card>
-        <CardHeader>
-          <CardTitle>평가 함수별 점수</CardTitle>
-        </CardHeader>
-        <CardContent className="overflow-x-auto">
-          {usedEvaluators.length === 0 ? (
-            <p className="text-sm text-zinc-500">평가 함수 정보가 없습니다.</p>
-          ) : (
-            <table className="w-full min-w-[640px] border-collapse text-sm">
-              <thead>
-                <tr className="border-b border-zinc-800">
-                  <th
-                    scope="col"
-                    className="py-2 pr-4 text-left text-xs font-medium uppercase tracking-wide text-zinc-500"
-                  >
-                    평가 함수
-                  </th>
-                  {runs.map((r) => (
-                    <th
-                      key={r.id}
-                      scope="col"
-                      className="py-2 pr-4 text-right text-xs font-medium uppercase tracking-wide text-zinc-500"
-                    >
-                      <div className="flex flex-col items-end gap-0.5">
-                        <span className="text-zinc-300">
-                          v{r.promptVersion} · {r.modelName}
-                        </span>
-                      </div>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {usedEvaluators.map((ev) => (
-                  <tr
-                    key={ev.id}
-                    className="border-b border-zinc-900 last:border-b-0"
-                  >
-                    <td className="py-2 pr-4 align-middle">
-                      <div className="flex items-center gap-2">
-                        <Target
-                          className="h-3.5 w-3.5 text-zinc-500"
-                          aria-hidden
-                        />
-                        <span className="text-zinc-200">{ev.name}</span>
-                        <span className="font-mono text-[10px] text-zinc-500">
-                          {ev.range}
-                        </span>
-                      </div>
-                    </td>
-                    {runs.map((r) => {
-                      const score = r.scoresByEvaluator[ev.id];
-                      return (
-                        <td
-                          key={r.id}
-                          className="py-2 pr-4 text-right align-middle"
-                        >
-                          <div className="inline-flex justify-end">
-                            <ScoreBadge
-                              value={score === undefined ? null : score}
-                              size="sm"
-                            />
-                          </div>
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
           )}
         </CardContent>
       </Card>
@@ -429,7 +440,7 @@ export default function ExperimentDetailPage() {
             <span>실험이 완료되었습니다. 결과 비교 페이지에서 분석하세요.</span>
           </div>
           <Link
-            href={`/compare?experiment=${experiment.id}`}
+            href={`/compare?experiment=${experiment.experiment_id}`}
             className="inline-flex items-center gap-1.5 text-sm font-medium text-indigo-300 hover:text-indigo-200"
           >
             결과 비교 <ArrowRight className="h-4 w-4" aria-hidden />

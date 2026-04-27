@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { ArrowDown, ArrowUp, MoreVertical } from "lucide-react";
-import type { Experiment } from "@/lib/mock/types";
+import type { ExperimentSummary } from "@/lib/types/api";
 import { StatusDot } from "@/components/ui/StatusDot";
 import { ScoreBadge } from "@/components/ui/ScoreBadge";
 import { Button } from "@/components/ui/Button";
@@ -12,7 +12,7 @@ export type SortKey = "createdAt" | "totalCostUsd" | "avgScore";
 export type SortDir = "asc" | "desc";
 
 interface ExperimentTableProps {
-  experiments: Experiment[];
+  experiments: ExperimentSummary[];
   sortKey: SortKey;
   sortDir: SortDir;
   onSortChange: (key: SortKey) => void;
@@ -25,31 +25,33 @@ const COLUMNS: Array<{
   className?: string;
   align?: "left" | "right" | "center";
 }> = [
-  { key: "name", label: "실험명", className: "min-w-[220px]" },
-  { key: "status", label: "상태", className: "w-[96px]" },
-  { key: "prompt", label: "프롬프트", className: "min-w-[180px]" },
-  { key: "dataset", label: "데이터셋", className: "min-w-[160px]" },
-  { key: "models", label: "모델", className: "w-[80px]", align: "right" },
-  { key: "runs", label: "Runs", className: "w-[96px]", align: "right" },
+  { key: "name", label: "실험명", className: "min-w-[260px]" },
+  { key: "status", label: "상태", className: "w-[110px]" },
+  {
+    key: "runs",
+    label: "Runs",
+    className: "w-[120px]",
+    align: "right",
+  },
   {
     key: "score",
     label: "평균 스코어",
     sortKey: "avgScore",
-    className: "w-[120px]",
+    className: "w-[140px]",
     align: "right",
   },
   {
     key: "cost",
     label: "총 비용",
     sortKey: "totalCostUsd",
-    className: "w-[100px]",
+    className: "w-[120px]",
     align: "right",
   },
   {
     key: "created",
     label: "생성일",
     sortKey: "createdAt",
-    className: "w-[120px]",
+    className: "w-[140px]",
     align: "right",
   },
   { key: "actions", label: "", className: "w-[40px]" },
@@ -120,74 +122,63 @@ export function ExperimentTable({
           </tr>
         </thead>
         <tbody>
-          {experiments.map((exp) => (
-            <tr
-              key={exp.id}
-              tabIndex={0}
-              onClick={() => router.push(`/experiments/${exp.id}`)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  router.push(`/experiments/${exp.id}`);
-                }
-              }}
-              className="cursor-pointer border-b border-zinc-900 transition-colors last:border-b-0 hover:bg-zinc-800/50 focus:bg-zinc-800/50 focus:outline-none"
-            >
-              <td className="px-3 py-2.5 align-middle">
-                <div className="truncate font-medium text-zinc-100">
-                  {exp.name}
-                </div>
-                {exp.description && (
-                  <div className="mt-0.5 truncate text-xs text-zinc-500">
-                    {exp.description}
+          {experiments.map((exp) => {
+            const totalRuns = exp.total_runs ?? exp.runs_total ?? 0;
+            const completedRuns = exp.runs_completed ?? 0;
+            const avgScore = exp.avg_score ?? null;
+            const totalCost = exp.total_cost ?? exp.total_cost_usd ?? 0;
+            return (
+              <tr
+                key={exp.experiment_id}
+                tabIndex={0}
+                onClick={() => router.push(`/experiments/${exp.experiment_id}`)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    router.push(`/experiments/${exp.experiment_id}`);
+                  }
+                }}
+                className="cursor-pointer border-b border-zinc-900 transition-colors last:border-b-0 hover:bg-zinc-800/50 focus:bg-zinc-800/50 focus:outline-none"
+              >
+                <td className="px-3 py-2.5 align-middle">
+                  <div className="truncate font-medium text-zinc-100">
+                    {exp.name}
                   </div>
-                )}
-              </td>
-              <td className="px-3 py-2.5 align-middle">
-                <StatusDot status={exp.status} />
-              </td>
-              <td className="px-3 py-2.5 align-middle">
-                <div className="truncate text-zinc-200">{exp.promptName}</div>
-                <div className="mt-0.5 truncate font-mono text-[11px] text-zinc-500">
-                  {exp.promptVersions.map((v) => `v${v}`).join(" + ")}
-                </div>
-              </td>
-              <td className="px-3 py-2.5 align-middle">
-                <div className="truncate text-zinc-300">{exp.datasetName}</div>
-                <div className="mt-0.5 text-[11px] text-zinc-500">
-                  {exp.itemCount} items
-                </div>
-              </td>
-              <td className="px-3 py-2.5 text-right align-middle font-mono tabular-nums text-zinc-200">
-                {exp.modelIds.length}
-              </td>
-              <td className="px-3 py-2.5 text-right align-middle font-mono tabular-nums text-zinc-200">
-                <span className="text-zinc-400">{exp.completedRuns}</span>
-                <span className="text-zinc-600"> / </span>
-                <span>{exp.runCount}</span>
-              </td>
-              <td className="px-3 py-2.5 text-right align-middle">
-                <div className="inline-flex justify-end">
-                  <ScoreBadge value={exp.avgScore} />
-                </div>
-              </td>
-              <td className="px-3 py-2.5 text-right align-middle font-mono tabular-nums text-zinc-200">
-                {formatCurrency(exp.totalCostUsd, 2)}
-              </td>
-              <td className="px-3 py-2.5 text-right align-middle text-xs text-zinc-400">
-                {formatRelativeDate(exp.createdAt)}
-              </td>
-              <td className="px-3 py-2.5 text-right align-middle">
-                <Button
-                  variant="ghost"
-                  size="iconSm"
-                  aria-label={`${exp.name} 액션`}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <MoreVertical className="h-4 w-4 text-zinc-500" />
-                </Button>
-              </td>
-            </tr>
-          ))}
+                  <div className="mt-0.5 truncate text-[11px] text-zinc-500">
+                    {exp.experiment_id}
+                  </div>
+                </td>
+                <td className="px-3 py-2.5 align-middle">
+                  <StatusDot status={exp.status} />
+                </td>
+                <td className="px-3 py-2.5 text-right align-middle font-mono tabular-nums text-zinc-200">
+                  <span className="text-zinc-400">{completedRuns}</span>
+                  <span className="text-zinc-600"> / </span>
+                  <span>{totalRuns}</span>
+                </td>
+                <td className="px-3 py-2.5 text-right align-middle">
+                  <div className="inline-flex justify-end">
+                    <ScoreBadge value={avgScore} />
+                  </div>
+                </td>
+                <td className="px-3 py-2.5 text-right align-middle font-mono tabular-nums text-zinc-200">
+                  {formatCurrency(totalCost, 2)}
+                </td>
+                <td className="px-3 py-2.5 text-right align-middle text-xs text-zinc-400">
+                  {formatRelativeDate(exp.created_at)}
+                </td>
+                <td className="px-3 py-2.5 text-right align-middle">
+                  <Button
+                    variant="ghost"
+                    size="iconSm"
+                    aria-label={`${exp.name} 액션`}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <MoreVertical className="h-4 w-4 text-zinc-500" />
+                  </Button>
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

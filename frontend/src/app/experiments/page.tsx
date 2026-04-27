@@ -7,14 +7,16 @@ import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { experiments } from "@/lib/mock/data";
-import type { ExperimentStatus } from "@/lib/mock/types";
+import { useExperimentList } from "@/lib/hooks/useExperiments";
+import type { ExperimentStatus, ExperimentSummary } from "@/lib/types/api";
 import { cn } from "@/lib/utils";
 import {
   ExperimentTable,
   type SortDir,
   type SortKey,
 } from "./_components/ExperimentTable";
+
+const DEFAULT_PROJECT_ID = "production-api";
 
 type StatusFilter = "all" | ExperimentStatus;
 
@@ -40,56 +42,62 @@ const SORT_OPTIONS: SortOption[] = [
 ];
 
 export default function ExperimentsPage() {
+  const projectId = DEFAULT_PROJECT_ID;
+
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [sortId, setSortId] = useState<string>(SORT_OPTIONS[0].id);
+  const [page, setPage] = useState(1);
 
   const sortOption = useMemo(
     () => SORT_OPTIONS.find((o) => o.id === sortId) ?? SORT_OPTIONS[0],
     [sortId]
   );
 
-  const filtered = useMemo(() => {
+  // Backend supports status + page; search/sort handled client-side.
+  const { data, isLoading, error, refetch } = useExperimentList(projectId, {
+    status: statusFilter === "all" ? undefined : statusFilter,
+    page,
+    pageSize: 50,
+  });
+
+  const items = useMemo(() => data?.items ?? [], [data]);
+  const total = data?.total ?? items.length;
+
+  const filteredSorted = useMemo<ExperimentSummary[]>(() => {
     const q = query.trim().toLowerCase();
-    let rows = experiments.slice();
-
-    if (statusFilter !== "all") {
-      rows = rows.filter((e) => e.status === statusFilter);
+    let rows = items.slice();
+    if (q) {
+      rows = rows.filter((e) => e.name.toLowerCase().includes(q));
     }
-
-    if (q.length > 0) {
-      rows = rows.filter(
-        (e) =>
-          e.name.toLowerCase().includes(q) ||
-          e.promptName.toLowerCase().includes(q) ||
-          e.datasetName.toLowerCase().includes(q) ||
-          (e.description?.toLowerCase().includes(q) ?? false)
-      );
-    }
-
     rows.sort((a, b) => {
-      const k = sortOption.key;
-      const av = (a[k] ?? 0) as number | string;
-      const bv = (b[k] ?? 0) as number | string;
-      if (k === "createdAt") {
-        const at = new Date(av as string).getTime();
-        const bt = new Date(bv as string).getTime();
-        return sortOption.dir === "asc" ? at - bt : bt - at;
+      switch (sortOption.key) {
+        case "createdAt": {
+          const at = new Date(a.created_at).getTime();
+          const bt = new Date(b.created_at).getTime();
+          return sortOption.dir === "asc" ? at - bt : bt - at;
+        }
+        case "totalCostUsd": {
+          const av = a.total_cost ?? 0;
+          const bv = b.total_cost ?? 0;
+          return sortOption.dir === "asc" ? av - bv : bv - av;
+        }
+        case "avgScore": {
+          const av = a.avg_score ?? 0;
+          const bv = b.avg_score ?? 0;
+          return sortOption.dir === "asc" ? av - bv : bv - av;
+        }
+        default:
+          return 0;
       }
-      const an = (av as number) ?? 0;
-      const bn = (bv as number) ?? 0;
-      return sortOption.dir === "asc" ? an - bn : bn - an;
     });
-
     return rows;
-  }, [query, statusFilter, sortOption]);
+  }, [items, query, sortOption]);
 
   const handleSortChange = (key: SortKey) => {
-    // header click: toggle dir or pick a sane default for that column
     const current = SORT_OPTIONS.find((o) => o.key === key);
     if (current) {
       setSortId(current.id);
-      return;
     }
   };
 
@@ -116,7 +124,7 @@ export default function ExperimentsPage() {
           />
           <Input
             type="search"
-            placeholder="실험명, 프롬프트, 데이터셋 검색"
+            placeholder="실험명 검색"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             className="pl-8"
@@ -131,7 +139,10 @@ export default function ExperimentsPage() {
               <button
                 key={f.id}
                 type="button"
-                onClick={() => setStatusFilter(f.id)}
+                onClick={() => {
+                  setStatusFilter(f.id);
+                  setPage(1);
+                }}
                 aria-pressed={active}
                 className={cn(
                   "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
@@ -161,7 +172,26 @@ export default function ExperimentsPage() {
         </div>
       </div>
 
-      {filtered.length === 0 ? (
+      {error ? (
+        <EmptyState
+          icon={<FlaskConical className="h-8 w-8" />}
+          title="실험 목록을 불러오지 못했습니다"
+          description={(error as Error).message ?? "다시 시도해 주세요."}
+          primaryAction={
+            <button
+              type="button"
+              onClick={() => refetch()}
+              className="inline-flex h-8 items-center gap-2 rounded-md bg-indigo-500 px-3 text-sm font-medium text-white"
+            >
+              재시도
+            </button>
+          }
+        />
+      ) : isLoading ? (
+        <div className="rounded-lg border border-zinc-800 bg-zinc-900 px-4 py-8 text-center text-sm text-zinc-500">
+          실험 목록을 불러오는 중…
+        </div>
+      ) : filteredSorted.length === 0 ? (
         <EmptyState
           icon={<FlaskConical className="h-8 w-8" />}
           title="조건에 맞는 실험이 없습니다"
@@ -176,12 +206,39 @@ export default function ExperimentsPage() {
           }
         />
       ) : (
-        <ExperimentTable
-          experiments={filtered}
-          sortKey={sortOption.key}
-          sortDir={sortOption.dir}
-          onSortChange={handleSortChange}
-        />
+        <>
+          <ExperimentTable
+            experiments={filteredSorted}
+            sortKey={sortOption.key}
+            sortDir={sortOption.dir}
+            onSortChange={handleSortChange}
+          />
+          {total > items.length && (
+            <div className="mt-3 flex items-center justify-between text-xs text-zinc-500">
+              <span>
+                {items.length}개 표시 / 전체 {total}
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="rounded-md border border-zinc-800 px-2 py-1 hover:bg-zinc-900 disabled:opacity-50"
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page <= 1}
+                >
+                  이전
+                </button>
+                <span>page {page}</span>
+                <button
+                  type="button"
+                  className="rounded-md border border-zinc-800 px-2 py-1 hover:bg-zinc-900"
+                  onClick={() => setPage((p) => p + 1)}
+                >
+                  다음
+                </button>
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

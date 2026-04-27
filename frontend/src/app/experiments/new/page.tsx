@@ -7,6 +7,13 @@ import { AnimatePresence, motion } from "framer-motion";
 import { ArrowLeft, ArrowRight, Loader2, Rocket } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { useCreateExperiment } from "@/lib/hooks/useExperiments";
+import type {
+  EvaluatorConfig as ApiEvaluatorConfig,
+  ExperimentCreate,
+  ModelConfigItem,
+  PromptConfigItem,
+} from "@/lib/types/api";
 import {
   WizardStepper,
   type WizardStepDef,
@@ -21,6 +28,8 @@ import {
   type WizardState,
 } from "../_components/wizardState";
 
+const DEFAULT_PROJECT_ID = "production-api";
+
 const STEPS: WizardStepDef[] = [
   { id: 1, label: "기본 설정", description: "실험명 · 프롬프트 · 데이터셋" },
   { id: 2, label: "모델 선택", description: "비교할 모델과 파라미터" },
@@ -28,11 +37,43 @@ const STEPS: WizardStepDef[] = [
   { id: 4, label: "확인", description: "예상 비용·실행 검토" },
 ];
 
+function generateIdempotencyKey(): string {
+  return `exp-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function buildEvaluatorConfig(
+  evaluatorId: string,
+  weight: number
+): ApiEvaluatorConfig {
+  // Heuristic: built-in evaluators have short snake_case names; custom evaluators
+  // come back as submission ids (e.g., uuids or `sub_*`). The Phase 7-A backend
+  // accepts either `type: "builtin"` with `name` or `type: "custom_code"` with
+  // `submission_id`.
+  const looksLikeSubmission =
+    evaluatorId.includes("-") && evaluatorId.length >= 20;
+  if (looksLikeSubmission) {
+    return {
+      type: "custom_code",
+      submission_id: evaluatorId,
+      weight,
+    };
+  }
+  if (evaluatorId.includes("judge")) {
+    return { type: "llm_judge", name: evaluatorId, weight };
+  }
+  return { type: "builtin", name: evaluatorId, weight };
+}
+
 export default function NewExperimentPage() {
   const router = useRouter();
+  const projectId = DEFAULT_PROJECT_ID;
+
   const [step, setStep] = useState(1);
   const [state, setState] = useState<WizardState>(initialWizardState);
-  const [isStarting, setIsStarting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [idempotencyKey] = useState<string>(() => generateIdempotencyKey());
+
+  const createExperiment = useCreateExperiment();
 
   const updateState = (patch: Partial<WizardState>) => {
     setState((prev) => ({ ...prev, ...patch }));
@@ -40,6 +81,7 @@ export default function NewExperimentPage() {
 
   const canGoNext = isStepValid(state, step);
   const isLast = step === STEPS.length;
+  const isStarting = createExperiment.isPending;
 
   const handleNext = () => {
     if (!canGoNext) return;
@@ -54,12 +96,46 @@ export default function NewExperimentPage() {
     setStep((s) => Math.max(1, s - 1));
   };
 
-  const handleStart = () => {
-    setIsStarting(true);
-    window.setTimeout(() => {
-      // Mock completion: navigate to list (no real backend persists this id)
-      router.push("/experiments");
-    }, 800);
+  const handleStart = async () => {
+    setErrorMessage(null);
+    try {
+      const promptConfigs: PromptConfigItem[] = state.promptVersions.map(
+        (v) => ({
+          name: state.promptId,
+          version: v,
+        })
+      );
+      const modelConfigs: ModelConfigItem[] = state.models.map((m) => ({
+        model: m.modelId,
+        parameters: {
+          temperature: m.temperature,
+          max_tokens: m.maxTokens,
+        },
+      }));
+      const evaluators: ApiEvaluatorConfig[] = state.evaluators.map((e) =>
+        buildEvaluatorConfig(e.evaluatorId, e.weight)
+      );
+
+      const payload: ExperimentCreate = {
+        project_id: projectId,
+        name: state.name,
+        description: state.description || undefined,
+        prompt_configs: promptConfigs,
+        dataset_name: state.datasetId,
+        model_configs: modelConfigs,
+        evaluators,
+      };
+
+      const created = await createExperiment.mutateAsync({
+        payload,
+        idempotencyKey,
+      });
+      router.push(`/experiments/${created.experiment_id}`);
+    } catch (err) {
+      setErrorMessage(
+        err instanceof Error ? err.message : "실험 생성에 실패했습니다"
+      );
+    }
   };
 
   return (
@@ -81,7 +157,6 @@ export default function NewExperimentPage() {
         <WizardStepper steps={STEPS} currentStep={step} />
       </div>
 
-      {/* Live region for step transitions */}
       <div className="sr-only" role="status" aria-live="polite">
         {STEPS[step - 1].label} 단계 (Step {step} / {STEPS.length})
       </div>
@@ -108,6 +183,15 @@ export default function NewExperimentPage() {
           </motion.div>
         </AnimatePresence>
       </div>
+
+      {errorMessage && (
+        <div
+          role="alert"
+          className="mb-4 rounded-md border border-rose-900/40 bg-rose-950/20 px-4 py-3 text-sm text-rose-200"
+        >
+          {errorMessage}
+        </div>
+      )}
 
       <div className="flex items-center justify-between">
         <Button

@@ -10,7 +10,9 @@ import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Badge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { datasets } from "@/lib/mock/data";
+import { useAuth } from "@/lib/auth";
+import { useDatasetList } from "@/lib/hooks/useDatasets";
+import type { DatasetSummary } from "@/lib/types/api";
 import { formatNumber, formatRelativeDate } from "@/lib/utils";
 import { UploadDatasetModal } from "./_components/UploadDatasetModal";
 
@@ -22,32 +24,52 @@ const SORT_OPTIONS: { value: SortKey; label: string }[] = [
   { value: "name", label: "이름순" },
 ];
 
+const DEFAULT_PROJECT_ID = "production-api";
+
 export default function DatasetsPage() {
+  const { user } = useAuth();
+  const projectId =
+    (user as { currentProjectId?: string } | null)?.currentProjectId ??
+    DEFAULT_PROJECT_ID;
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortKey>("recent");
   const [uploadOpen, setUploadOpen] = useState(false);
 
+  const { data, isLoading, isError, refetch } = useDatasetList(projectId);
+
+  const list: DatasetSummary[] = useMemo(() => {
+    const raw = data;
+    if (!raw) return [];
+    if ("datasets" in raw && Array.isArray(raw.datasets)) return raw.datasets;
+    if ("items" in raw && Array.isArray(raw.items))
+      return raw.items as DatasetSummary[];
+    return [];
+  }, [data]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    let list = datasets.filter(
-      (d) =>
-        !q ||
-        d.name.toLowerCase().includes(q) ||
-        d.description?.toLowerCase().includes(q)
-    );
-    list = [...list].sort((a, b) => {
+    let out = list;
+    if (q) {
+      out = out.filter(
+        (d) =>
+          d.name.toLowerCase().includes(q) ||
+          (d.description ?? "").toLowerCase().includes(q)
+      );
+    }
+    out = [...out].sort((a, b) => {
       if (sort === "name") return a.name.localeCompare(b.name);
-      if (sort === "created")
+      if (sort === "created") {
         return (
-          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+          new Date(b.created_at ?? 0).getTime() -
+          new Date(a.created_at ?? 0).getTime()
         );
-      // recent
-      const ax = a.lastUsed ? new Date(a.lastUsed).getTime() : 0;
-      const bx = b.lastUsed ? new Date(b.lastUsed).getTime() : 0;
+      }
+      const ax = a.last_used_at ? new Date(a.last_used_at).getTime() : 0;
+      const bx = b.last_used_at ? new Date(b.last_used_at).getTime() : 0;
       return bx - ax;
     });
-    return list;
-  }, [query, sort]);
+    return out;
+  }, [list, query, sort]);
 
   return (
     <div className="px-8 py-6">
@@ -91,7 +113,27 @@ export default function DatasetsPage() {
         </div>
       </div>
 
-      {filtered.length === 0 ? (
+      {isLoading ? (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {[0, 1, 2, 3, 4, 5].map((i) => (
+            <div
+              key={i}
+              className="h-32 animate-pulse rounded-lg border border-zinc-800 bg-zinc-900/40"
+            />
+          ))}
+        </div>
+      ) : isError ? (
+        <EmptyState
+          icon={<Database className="h-8 w-8" />}
+          title="데이터셋을 불러오지 못했습니다"
+          description="네트워크 또는 서버 오류입니다. 다시 시도해 주세요."
+          primaryAction={
+            <Button variant="primary" onClick={() => refetch?.()}>
+              재시도
+            </Button>
+          }
+        />
+      ) : filtered.length === 0 ? (
         <EmptyState
           icon={<Database className="h-8 w-8" />}
           title="데이터셋이 없습니다"
@@ -107,14 +149,14 @@ export default function DatasetsPage() {
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {filtered.map((d, idx) => (
             <motion.div
-              key={d.id}
+              key={d.name}
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.18, delay: idx * 0.02 }}
               whileHover={{ scale: 1.01 }}
             >
               <Link
-                href={`/datasets/${d.id}`}
+                href={`/datasets/${encodeURIComponent(d.name)}`}
                 className="group flex h-full flex-col gap-3 rounded-lg border border-zinc-800 bg-zinc-900 p-4 transition-colors hover:border-indigo-500/30 hover:bg-zinc-900/80"
               >
                 <div className="flex items-start justify-between gap-2">
@@ -147,10 +189,12 @@ export default function DatasetsPage() {
                 </p>
 
                 <div className="mt-auto flex items-center justify-between gap-2 pt-2">
-                  <Badge tone="accent">{formatNumber(d.itemCount)} items</Badge>
+                  <Badge tone="accent">
+                    {formatNumber(d.item_count ?? 0)} items
+                  </Badge>
                   <span className="text-xs text-zinc-500">
-                    {d.lastUsed
-                      ? `최근 사용: ${formatRelativeDate(d.lastUsed)} (${d.recentExperimentCount}건)`
+                    {d.last_used_at
+                      ? `최근 사용: ${formatRelativeDate(d.last_used_at)}`
                       : "사용 이력 없음"}
                   </span>
                 </div>
@@ -163,6 +207,7 @@ export default function DatasetsPage() {
       <UploadDatasetModal
         open={uploadOpen}
         onClose={() => setUploadOpen(false)}
+        projectId={projectId}
       />
     </div>
   );

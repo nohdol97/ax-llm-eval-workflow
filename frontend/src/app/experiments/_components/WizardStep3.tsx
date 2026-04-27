@@ -4,36 +4,89 @@ import { useMemo, useState } from "react";
 import { Input, Textarea } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Badge } from "@/components/ui/Badge";
-import { evaluators, models } from "@/lib/mock/data";
-import type { EvaluatorType } from "@/lib/mock/types";
+import {
+  useApprovedEvaluators,
+  useBuiltInEvaluators,
+} from "@/lib/hooks/useEvaluators";
+import { useModelList } from "@/lib/hooks/useModels";
+import type { ModelInfo } from "@/lib/types/api";
 import type { EvaluatorConfig, WizardState } from "./wizardState";
 import { cn } from "@/lib/utils";
+
+const DEFAULT_PROJECT_ID = "production-api";
+
+type EvalCategory = "builtin" | "judge" | "custom";
+
+interface UnifiedEvaluator {
+  id: string;
+  name: string;
+  description: string;
+  range: string;
+  category: EvalCategory;
+  status?: string;
+}
 
 interface WizardStep3Props {
   state: WizardState;
   onChange: (patch: Partial<WizardState>) => void;
 }
 
-const TABS: Array<{ id: EvaluatorType; label: string }> = [
+const TABS: Array<{ id: EvalCategory; label: string }> = [
   { id: "builtin", label: "내장" },
   { id: "judge", label: "Judge (LLM)" },
   { id: "custom", label: "Custom" },
 ];
 
 export function WizardStep3({ state, onChange }: WizardStep3Props) {
-  const [tab, setTab] = useState<EvaluatorType>("builtin");
+  const projectId = DEFAULT_PROJECT_ID;
+  const [tab, setTab] = useState<EvalCategory>("builtin");
+
+  const { data: builtInResp } = useBuiltInEvaluators();
+  const { data: approvedResp } = useApprovedEvaluators(projectId);
+
+  const evaluators = useMemo<UnifiedEvaluator[]>(() => {
+    const builtIn: UnifiedEvaluator[] = (builtInResp?.evaluators ?? []).map(
+      (e) => ({
+        id: e.name,
+        name: e.name,
+        description: e.description,
+        range:
+          e.return_type === "binary"
+            ? "binary"
+            : e.return_type === "integer"
+              ? "0-N"
+              : "0-1",
+        category: e.name.includes("judge") ? "judge" : "builtin",
+        status: "approved",
+      })
+    );
+    const approved: UnifiedEvaluator[] = (
+      approvedResp?.evaluators ?? []
+    ).map((e) => ({
+      id: e.submission_id,
+      name: e.name,
+      description: e.description,
+      range: "0-1",
+      category: "custom",
+      status: "approved",
+    }));
+    return [...builtIn, ...approved];
+  }, [builtInResp, approvedResp]);
+
+  const { data: modelListResp } = useModelList();
+  const models = useMemo<ModelInfo[]>(
+    () => modelListResp?.models ?? [],
+    [modelListResp]
+  );
 
   const filtered = useMemo(
-    () =>
-      evaluators.filter(
-        (e) => e.type === tab && e.status !== "deprecated"
-      ),
-    [tab]
+    () => evaluators.filter((e) => e.category === tab),
+    [tab, evaluators]
   );
 
   const hasJudge = state.evaluators.some((e) => {
     const def = evaluators.find((ev) => ev.id === e.evaluatorId);
-    return def?.type === "judge";
+    return def?.category === "judge";
   });
 
   const totalWeight = state.evaluators.reduce((sum, e) => sum + e.weight, 0);
@@ -80,9 +133,7 @@ export function WizardStep3({ state, onChange }: WizardStep3Props) {
         className="inline-flex items-center gap-1 rounded-md border border-zinc-800 bg-zinc-900 p-1"
       >
         {TABS.map((t) => {
-          const count = evaluators.filter(
-            (e) => e.type === t.id && e.status !== "deprecated"
-          ).length;
+          const count = evaluators.filter((e) => e.category === t.id).length;
           const active = tab === t.id;
           return (
             <button
@@ -132,9 +183,6 @@ export function WizardStep3({ state, onChange }: WizardStep3Props) {
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-zinc-100">{ev.name}</span>
                     <Badge tone="muted">{ev.range}</Badge>
-                    {ev.status === "pending" && (
-                      <Badge tone="warning">승인 대기</Badge>
-                    )}
                   </div>
                   <p className="mt-0.5 line-clamp-2 text-[11px] text-zinc-500">
                     {ev.description}

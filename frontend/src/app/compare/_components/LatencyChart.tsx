@@ -21,6 +21,9 @@ import type { LatencyPercentiles } from "./types";
 
 interface LatencyChartProps {
   data: LatencyPercentiles[];
+  distribution?: {
+    bins: Array<{ lo: number; hi: number; count: number }>;
+  };
 }
 
 interface ChartRow {
@@ -30,7 +33,10 @@ interface ChartRow {
   P99: number;
 }
 
-export function LatencyChart({ data }: LatencyChartProps) {
+export function LatencyChart({ data, distribution: _distribution }: LatencyChartProps) {
+  // distribution histogram support is reserved for future enhancement; currently
+  // the percentile bar chart is the primary visualization.
+  void _distribution;
   const rows: ChartRow[] = data.map((d) => ({
     name: d.shortLabel,
     P50: Math.round(d.p50),

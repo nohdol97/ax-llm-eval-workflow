@@ -2,33 +2,53 @@
 
 import { Check, ChevronDown, Eye } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { models, providerLabels } from "@/lib/mock/data";
-import type { Model, ProviderId } from "@/lib/mock/types";
+import type { ModelInfo as Model } from "@/lib/types/api";
 import { cn, formatCurrency, formatNumber } from "@/lib/utils";
+
+const PROVIDER_LABELS: Record<string, string> = {
+  azure: "Azure OpenAI",
+  openai: "OpenAI",
+  google: "Google",
+  anthropic: "Anthropic",
+  bedrock: "AWS Bedrock",
+};
 
 interface ModelSelectorProps {
   value: string;
   onChange: (modelId: string) => void;
+  models: Model[];
 }
 
-export function ModelSelector({ value, onChange }: ModelSelectorProps) {
+export function ModelSelector({ value, onChange, models }: ModelSelectorProps) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const grouped = useMemo(() => {
-    const map = new Map<ProviderId, Model[]>();
+    const map = new Map<string, Model[]>();
     models.forEach((m) => {
       const arr = map.get(m.provider) ?? [];
       arr.push(m);
       map.set(m.provider, arr);
     });
     return Array.from(map.entries());
-  }, []);
+  }, [models]);
 
   const selected = useMemo(
     () => models.find((m) => m.id === value) ?? models[0],
-    [value]
+    [value, models]
   );
+
+  if (!selected) {
+    return (
+      <button
+        type="button"
+        disabled
+        className="flex h-8 min-w-[220px] items-center justify-between gap-2 rounded-md border border-zinc-700 bg-zinc-800 px-3 text-sm text-zinc-500"
+      >
+        모델 로드 중…
+      </button>
+    );
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -67,7 +87,7 @@ export function ModelSelector({ value, onChange }: ModelSelectorProps) {
         <span className="flex min-w-0 items-center gap-2">
           <span className="truncate font-medium">{selected.name}</span>
           <span className="truncate text-[11px] text-zinc-500">
-            {providerLabels[selected.provider]}
+            {PROVIDER_LABELS[selected.provider] ?? selected.provider}
           </span>
         </span>
         <ChevronDown
@@ -91,7 +111,7 @@ export function ModelSelector({ value, onChange }: ModelSelectorProps) {
           {grouped.map(([provider, list]) => (
             <div key={provider} className="mb-1 last:mb-0">
               <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
-                {providerLabels[provider]}
+                {PROVIDER_LABELS[provider] ?? provider}
               </div>
               <ul className="flex flex-col">
                 {list.map((m) => {
@@ -130,9 +150,9 @@ export function ModelSelector({ value, onChange }: ModelSelectorProps) {
                             )}
                           </span>
                           <span className="mt-0.5 truncate font-mono text-[11px] text-zinc-500">
-                            {formatNumber(m.contextWindow)}ctx ·{" "}
-                            in {formatCurrency(m.inputCostPerK, 4)}/1K · out{" "}
-                            {formatCurrency(m.outputCostPerK, 4)}/1K
+                            {formatNumber(m.context_window)}ctx ·{" "}
+                            in {formatCurrency(m.input_cost_per_k, 4)}/1K · out{" "}
+                            {formatCurrency(m.output_cost_per_k, 4)}/1K
                           </span>
                         </span>
                       </button>

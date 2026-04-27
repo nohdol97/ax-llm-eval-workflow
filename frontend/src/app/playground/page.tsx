@@ -17,10 +17,23 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/Card";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Select } from "@/components/ui/Select";
-import { models, prompts } from "@/lib/mock/data";
-import type { Model, Prompt, PromptVersion } from "@/lib/mock/types";
+import { useAuth } from "@/lib/auth";
+import { useModelList } from "@/lib/hooks/useModels";
+import {
+  usePromptDetail,
+  usePromptList,
+  usePromptVersions,
+} from "@/lib/hooks/usePrompts";
+import { useSingleTestRun } from "@/lib/hooks/useExperiments";
+import type {
+  ChatMessage,
+  ModelInfo,
+  PromptDetail,
+  SingleTestRequest,
+} from "@/lib/types/api";
 import { cn } from "@/lib/utils";
 import { CollapsiblePanel } from "./_components/CollapsiblePanel";
 import { ImageAttachmentPanel } from "./_components/ImageAttachmentPanel";
@@ -34,16 +47,13 @@ import { PromptEditor, extractVariables } from "./_components/PromptEditor";
 import { ResponseStream, type StreamStatus } from "./_components/ResponseStream";
 import { RunHistory } from "./_components/RunHistory";
 import { VariableForm, type VariableFormHandle } from "./_components/VariableForm";
-import {
-  generateMockMeta,
-  generateMockScore,
-  pickMockResponse,
-  randomTypingIntervalMs,
-  type MockResponseMeta,
-  type RunHistoryEntry,
+import type {
+  MockResponseMeta,
+  RunHistoryEntry,
 } from "./_components/mockResponse";
 
 const HISTORY_LIMIT = 5;
+const DEFAULT_PROJECT_ID = "production-api";
 
 interface StreamState {
   status: StreamStatus;
@@ -51,17 +61,17 @@ interface StreamState {
   meta: MockResponseMeta | null;
   modelName: string;
   promptName?: string;
+  traceId?: string | null;
+  errorMessage?: string | null;
+  scores?: Record<string, number | null> | null;
 }
 
 type StreamAction =
   | { type: "start"; modelName: string; promptName: string }
-  | { type: "appendChar"; char: string }
-  | { type: "complete"; meta: MockResponseMeta }
+  | { type: "complete"; meta: MockResponseMeta; output: string; traceId: string; scores: Record<string, number | null> | null }
   | { type: "stop" }
-  | {
-      type: "replay";
-      entry: RunHistoryEntry;
-    };
+  | { type: "error"; message: string }
+  | { type: "replay"; entry: RunHistoryEntry };
 
 function streamReducer(state: StreamState, action: StreamAction): StreamState {
   switch (action.type) {
@@ -72,13 +82,23 @@ function streamReducer(state: StreamState, action: StreamAction): StreamState {
         meta: null,
         modelName: action.modelName,
         promptName: action.promptName,
+        traceId: null,
+        errorMessage: null,
+        scores: null,
       };
-    case "appendChar":
-      return { ...state, text: state.text + action.char };
     case "complete":
-      return { ...state, status: "completed", meta: action.meta };
+      return {
+        ...state,
+        status: "completed",
+        text: action.output,
+        meta: action.meta,
+        traceId: action.traceId,
+        scores: action.scores,
+      };
     case "stop":
       return { ...state, status: "stopped" };
+    case "error":
+      return { ...state, status: "stopped", errorMessage: action.message };
     case "replay":
       return {
         status: "completed",
@@ -86,116 +106,151 @@ function streamReducer(state: StreamState, action: StreamAction): StreamState {
         meta: action.entry.meta,
         modelName: action.entry.modelName,
         promptName: action.entry.promptName,
+        traceId: null,
+        errorMessage: null,
+        scores: null,
       };
     default:
       return state;
   }
 }
 
-function findPrompt(id: string): Prompt {
-  return prompts.find((p) => p.id === id) ?? prompts[0];
+function extractBodyText(detail: PromptDetail | undefined): string {
+  if (!detail) return "";
+  if (typeof detail.prompt === "string") return detail.prompt;
+  // chat format → join user-content
+  return (detail.prompt as ChatMessage[])
+    .map((m) => `[${m.role}] ${m.content}`)
+    .join("\n\n");
 }
 
-function findVersion(p: Prompt, version: number): PromptVersion {
-  return (
-    p.versions.find((v) => v.version === version) ?? p.versions[0]
-  );
-}
-
-function findModel(id: string): Model {
-  return models.find((m) => m.id === id) ?? models[0];
+function extractSystemPrompt(detail: PromptDetail | undefined): string {
+  if (!detail) return "";
+  const sys = (detail.config as Record<string, unknown>)?.system_prompt;
+  return typeof sys === "string" ? sys : "";
 }
 
 export default function PlaygroundPage() {
-  // Selection state
-  const [promptId, setPromptId] = useState<string>(prompts[0].id);
-  const [promptVersion, setPromptVersion] = useState<number>(
-    prompts[0].latestVersion
-  );
-  const [modelId, setModelId] = useState<string>(models[0].id);
+  // mock 모드는 auth.tsx가 자동으로 admin 토큰 주입
+  // user 객체에 currentProjectId가 없으므로 default 사용
+  useAuth();
+  const projectId = DEFAULT_PROJECT_ID;
 
-  // Editor state
-  const initialVersion = useMemo(
-    () => findVersion(findPrompt(prompts[0].id), prompts[0].latestVersion),
-    []
+  // ── Remote: prompt list, model list ─────────────────────────────────
+  const { data: promptListResp } = usePromptList(projectId);
+  const prompts = useMemo(
+    () => promptListResp?.items ?? [],
+    [promptListResp]
   );
-  const [systemPrompt, setSystemPrompt] = useState<string>(
-    initialVersion.systemPrompt ?? ""
+
+  const { data: modelListResp } = useModelList();
+  const flatModels = useMemo<ModelInfo[]>(
+    () => modelListResp?.models ?? [],
+    [modelListResp]
   );
-  const [body, setBody] = useState<string>(initialVersion.body);
-  const [detectedVars, setDetectedVars] = useState<string[]>(
-    initialVersion.variables
+
+  // ── Selection state ─────────────────────────────────────────────────
+  const [promptName, setPromptName] = useState<string>("");
+  const [promptVersion, setPromptVersion] = useState<number | null>(null);
+  const [modelId, setModelId] = useState<string>("");
+
+  // Initialize selection once data arrives
+  useEffect(() => {
+    if (prompts.length > 0 && !promptName) {
+      const first = prompts[0];
+      setPromptName(first.name);
+      setPromptVersion(first.latest_version);
+    }
+  }, [prompts, promptName]);
+
+  useEffect(() => {
+    if (flatModels.length > 0 && !modelId) {
+      setModelId(flatModels[0].id);
+    }
+  }, [flatModels, modelId]);
+
+  // ── Remote: prompt detail (versioned), versions list ────────────────
+  const { data: promptDetail } = usePromptDetail(
+    projectId,
+    promptName || null,
+    promptVersion ?? undefined
   );
+  const { data: versionsResp } = usePromptVersions(
+    projectId,
+    promptName || null
+  );
+  const promptVersionsList = versionsResp?.versions ?? [];
+
+  // ── Editor state (mirrors prompt detail) ────────────────────────────
+  const [systemPrompt, setSystemPrompt] = useState<string>("");
+  const [body, setBody] = useState<string>("");
+  const [detectedVars, setDetectedVars] = useState<string[]>([]);
   const [varValues, setVarValues] = useState<Record<string, string>>({});
   const [varErrors, setVarErrors] = useState<Set<string>>(new Set());
 
-  // Model parameters
-  const [parameters, setParameters] = useState<ModelParameters>(DEFAULT_PARAMETERS);
-
-  // Stream state
-  const [stream, dispatch] = useReducer(streamReducer, {
-    status: "idle" as StreamStatus,
-    text: "",
-    meta: null,
-    modelName: findModel(models[0].id).name,
-    promptName: prompts[0].name,
-  });
-
-  // History
-  const [history, setHistory] = useState<RunHistoryEntry[]>([]);
-
-  // Refs for streaming control + variable focus
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const fullResponseRef = useRef<string>("");
-  const streamedRef = useRef<string>("");
-  const variableFormRef = useRef<VariableFormHandle | null>(null);
-
-  // Cleanup on unmount
+  // Sync editor state when prompt detail loads
   useEffect(() => {
-    return () => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    };
-  }, []);
-
-  // Load prompt body when prompt id changes (and reset to its latest version)
-  const handlePromptChange = useCallback((id: string) => {
-    const p = findPrompt(id);
-    const v = findVersion(p, p.latestVersion);
-    setPromptId(id);
-    setPromptVersion(v.version);
-    setSystemPrompt(v.systemPrompt ?? "");
-    setBody(v.body);
-    setDetectedVars(v.variables);
-    // preserve previously typed variable values for variables that still exist
+    if (!promptDetail) return;
+    const nextBody = extractBodyText(promptDetail);
+    const nextSys = extractSystemPrompt(promptDetail);
+    setSystemPrompt(nextSys);
+    setBody(nextBody);
+    setDetectedVars(promptDetail.variables);
     setVarValues((prev) => {
       const next: Record<string, string> = {};
-      v.variables.forEach((name) => {
+      promptDetail.variables.forEach((name) => {
         next[name] = prev[name] ?? "";
       });
       return next;
     });
     setVarErrors(new Set());
+  }, [promptDetail]);
+
+  // ── Model parameters ────────────────────────────────────────────────
+  const [parameters, setParameters] = useState<ModelParameters>(
+    DEFAULT_PARAMETERS
+  );
+
+  // ── Stream state ────────────────────────────────────────────────────
+  const [stream, dispatch] = useReducer(streamReducer, {
+    status: "idle" as StreamStatus,
+    text: "",
+    meta: null,
+    modelName: "",
+    promptName: undefined,
+  });
+
+  // ── History ─────────────────────────────────────────────────────────
+  const [history, setHistory] = useState<RunHistoryEntry[]>([]);
+
+  // ── Refs for streaming control ──────────────────────────────────────
+  const abortRef = useRef<AbortController | null>(null);
+  const variableFormRef = useRef<VariableFormHandle | null>(null);
+
+  // ── Single test mutation ────────────────────────────────────────────
+  const singleTest = useSingleTestRun();
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+      abortRef.current = null;
+    };
   }, []);
 
-  const handleVersionChange = useCallback(
-    (version: number) => {
-      const p = findPrompt(promptId);
-      const v = findVersion(p, version);
-      setPromptVersion(v.version);
-      setSystemPrompt(v.systemPrompt ?? "");
-      setBody(v.body);
-      setDetectedVars(v.variables);
-      setVarValues((prev) => {
-        const next: Record<string, string> = {};
-        v.variables.forEach((name) => {
-          next[name] = prev[name] ?? "";
-        });
-        return next;
-      });
-      setVarErrors(new Set());
+  // ── Handlers ────────────────────────────────────────────────────────
+  const handlePromptChange = useCallback(
+    (name: string) => {
+      const p = prompts.find((x) => x.name === name);
+      setPromptName(name);
+      setPromptVersion(p?.latest_version ?? null);
     },
-    [promptId]
+    [prompts]
   );
+
+  const handleVersionChange = useCallback((version: number) => {
+    setPromptVersion(version);
+  }, []);
 
   const handleBodyChange = useCallback((next: string) => {
     setBody(next);
@@ -219,29 +274,29 @@ export default function PlaygroundPage() {
     });
   }, []);
 
-  const handleVariableValueChange = useCallback((name: string, value: string) => {
-    setVarValues((prev) => ({ ...prev, [name]: value }));
-    setVarErrors((prev) => {
-      if (!prev.has(name)) return prev;
-      const next = new Set(prev);
-      next.delete(name);
-      return next;
-    });
-  }, []);
+  const handleVariableValueChange = useCallback(
+    (name: string, value: string) => {
+      setVarValues((prev) => ({ ...prev, [name]: value }));
+      setVarErrors((prev) => {
+        if (!prev.has(name)) return prev;
+        const next = new Set(prev);
+        next.delete(name);
+        return next;
+      });
+    },
+    []
+  );
 
   const handleVariableChipClick = useCallback((name: string) => {
     variableFormRef.current?.focusVariable(name);
   }, []);
 
-  const stopStreaming = useCallback(() => {
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-      timeoutRef.current = null;
-    }
-  }, []);
+  const startRun = useCallback(async () => {
+    if (!promptDetail || !modelId) return;
+    const model = flatModels.find((m) => m.id === modelId);
+    if (!model) return;
 
-  const startRun = useCallback(() => {
-    // Validate variables (must use detectedVars from current body — re-extract to be safe)
+    // Validate variables
     const currentVars = extractVariables(body);
     const missing = new Set<string>();
     currentVars.forEach((name) => {
@@ -250,97 +305,100 @@ export default function PlaygroundPage() {
     });
     if (missing.size > 0) {
       setVarErrors(missing);
-      // focus first missing variable
       const first = currentVars.find((n) => missing.has(n));
       if (first) variableFormRef.current?.focusVariable(first);
       return;
     }
 
-    const prompt = findPrompt(promptId);
-    const model = findModel(modelId);
-    const fullResponse = pickMockResponse(prompt.name);
-    fullResponseRef.current = fullResponse;
-    streamedRef.current = "";
-
-    const promptCharCount = systemPrompt.length + body.length;
-
     dispatch({
       type: "start",
       modelName: model.name,
-      promptName: `${prompt.name} v${promptVersion}`,
+      promptName: `${promptDetail.name} v${promptDetail.version}`,
     });
 
-    let i = 0;
-    const tick = () => {
-      if (i >= fullResponse.length) {
-        timeoutRef.current = null;
-        const meta = generateMockMeta(model, promptCharCount, fullResponse.length);
-        dispatch({ type: "complete", meta });
-
-        const entry: RunHistoryEntry = {
-          id: `run-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-          promptId: prompt.id,
-          promptName: prompt.name,
-          promptVersion,
-          modelId: model.id,
-          modelName: model.name,
-          modelProvider: model.provider,
-          variables: { ...varValues },
-          response: fullResponse,
-          partial: false,
-          meta,
-          createdAt: new Date().toISOString(),
-          score: generateMockScore(),
-        };
-        setHistory((prev) => [entry, ...prev].slice(0, HISTORY_LIMIT));
-        return;
-      }
-      const ch = fullResponse[i];
-      streamedRef.current += ch;
-      dispatch({ type: "appendChar", char: ch });
-      i += 1;
-      // schedule next tick with a randomized delay for natural feel
-      timeoutRef.current = setTimeout(tick, randomTypingIntervalMs());
+    const payload: SingleTestRequest = {
+      project_id: projectId,
+      prompt: {
+        source: "langfuse",
+        name: promptDetail.name,
+        version: promptDetail.version,
+      },
+      variables: varValues,
+      model: modelId,
+      parameters: {
+        temperature: parameters.temperature,
+        top_p: parameters.topP,
+        max_tokens: parameters.maxTokens,
+      },
+      stream: false,
     };
 
-    timeoutRef.current = setTimeout(tick, randomTypingIntervalMs());
-  }, [body, modelId, promptId, promptVersion, systemPrompt, varValues]);
+    try {
+      const result = await singleTest.mutateAsync({ payload });
+      const meta: MockResponseMeta = {
+        latencyMs: result.latency_ms ?? 0,
+        inputTokens: result.usage?.input_tokens ?? 0,
+        outputTokens: result.usage?.output_tokens ?? 0,
+        costUsd: result.cost_usd ?? 0,
+      };
+      const scores: Record<string, number | null> | null =
+        result.scores && Object.keys(result.scores).length > 0
+          ? Object.fromEntries(
+              Object.entries(result.scores).map(([k, v]) => [
+                k,
+                typeof v === "number" ? v : null,
+              ])
+            )
+          : null;
 
-  const handleStop = useCallback(() => {
-    stopStreaming();
-    const prompt = findPrompt(promptId);
-    const model = findModel(modelId);
-    const partialText = streamedRef.current;
-    dispatch({ type: "stop" });
-    const promptCharCount = systemPrompt.length + body.length;
-    const meta = generateMockMeta(model, promptCharCount, Math.max(40, partialText.length));
-    const entry: RunHistoryEntry = {
-      id: `run-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      promptId: prompt.id,
-      promptName: prompt.name,
-      promptVersion,
-      modelId: model.id,
-      modelName: model.name,
-      modelProvider: model.provider,
-      variables: { ...varValues },
-      response: partialText,
-      partial: true,
-      meta,
-      createdAt: new Date().toISOString(),
-      score: generateMockScore(),
-    };
-    setHistory((prev) => [entry, ...prev].slice(0, HISTORY_LIMIT));
+      dispatch({
+        type: "complete",
+        meta,
+        output: result.output,
+        traceId: result.trace_id,
+        scores,
+      });
+
+      const entry: RunHistoryEntry = {
+        id: `run-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        promptId: promptDetail.name,
+        promptName: promptDetail.name,
+        promptVersion: promptDetail.version,
+        modelId: model.id,
+        modelName: model.name,
+        modelProvider: model.provider,
+        variables: { ...varValues },
+        response: result.output,
+        partial: false,
+        meta,
+        createdAt: new Date().toISOString(),
+        score: 0,
+      };
+      setHistory((prev) => [entry, ...prev].slice(0, HISTORY_LIMIT));
+    } catch (err) {
+      dispatch({
+        type: "error",
+        message: err instanceof Error ? err.message : "stream error",
+      });
+    }
   }, [
-    body,
+    promptDetail,
     modelId,
-    promptId,
-    promptVersion,
-    stopStreaming,
-    systemPrompt,
+    flatModels,
+    body,
     varValues,
+    parameters,
+    projectId,
+    singleTest,
   ]);
 
-  // Global Cmd/Ctrl + Enter shortcut
+  const handleStop = useCallback(() => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    dispatch({ type: "stop" });
+  }, []);
+
+  // Cmd/Ctrl + Enter shortcut
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
@@ -354,18 +412,34 @@ export default function PlaygroundPage() {
   }, [startRun, stream.status]);
 
   const handleReplay = useCallback((entry: RunHistoryEntry) => {
-    stopStreaming();
     dispatch({ type: "replay", entry });
-  }, [stopStreaming]);
+  }, []);
 
-  const currentPrompt = findPrompt(promptId);
-  const isStreaming = stream.status === "streaming";
+  const isStreaming =
+    stream.status === "streaming" || singleTest.isPending;
+
+  const currentPromptSummary = prompts.find((p) => p.name === promptName);
+
+  if (!promptDetail || flatModels.length === 0) {
+    return (
+      <div className="px-6 pb-10 pt-6">
+        <PageHeader
+          title="단일 테스트 (Playground)"
+          description="프롬프트를 빠르게 시도하고 응답·비용·지연을 비교합니다."
+        />
+        <EmptyState
+          title="프롬프트와 모델 정보를 불러오는 중…"
+          description="잠시만 기다려 주세요."
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="px-6 pb-10 pt-6">
       <PageHeader
         title="단일 테스트 (Playground)"
-        description="프롬프트를 빠르게 시도하고 응답·비용·지연을 비교합니다. 모든 응답은 mock 데이터입니다."
+        description="프롬프트를 빠르게 시도하고 응답·비용·지연을 비교합니다."
         actions={
           <Button variant="secondary" size="md" disabled>
             <Save className="h-4 w-4" aria-hidden />
@@ -389,7 +463,7 @@ export default function PlaygroundPage() {
             <CardHeader className="flex items-center justify-between gap-3 py-2">
               <CardTitle>프롬프트 선택</CardTitle>
               <Badge tone="muted">
-                {currentPrompt.labels[0] ?? "draft"}
+                {currentPromptSummary?.labels?.[0] ?? "draft"}
               </Badge>
             </CardHeader>
             <CardContent className="grid grid-cols-[1fr_120px] gap-2 pt-3">
@@ -402,11 +476,11 @@ export default function PlaygroundPage() {
                 </label>
                 <Select
                   id="prompt-name-select"
-                  value={promptId}
+                  value={promptName}
                   onChange={(e) => handlePromptChange(e.target.value)}
                 >
                   {prompts.map((p) => (
-                    <option key={p.id} value={p.id}>
+                    <option key={p.name} value={p.name}>
                       {p.name}
                     </option>
                   ))}
@@ -421,15 +495,22 @@ export default function PlaygroundPage() {
                 </label>
                 <Select
                   id="prompt-version-select"
-                  value={String(promptVersion)}
+                  value={String(promptVersion ?? "")}
                   onChange={(e) => handleVersionChange(Number(e.target.value))}
                 >
-                  {currentPrompt.versions.map((v) => (
+                  {promptVersionsList.map((v) => (
                     <option key={v.version} value={v.version}>
                       v{v.version}
-                      {v.version === currentPrompt.latestVersion ? " (latest)" : ""}
+                      {v.version === currentPromptSummary?.latest_version
+                        ? " (latest)"
+                        : ""}
                     </option>
                   ))}
+                  {promptVersionsList.length === 0 && (
+                    <option value={String(promptDetail.version)}>
+                      v{promptDetail.version}
+                    </option>
+                  )}
                 </Select>
               </div>
             </CardContent>
@@ -543,7 +624,11 @@ export default function PlaygroundPage() {
             </div>
             <div className="flex items-center gap-2">
               <span className="text-[11px] text-zinc-500">모델</span>
-              <ModelSelector value={modelId} onChange={setModelId} />
+              <ModelSelector
+                value={modelId}
+                onChange={setModelId}
+                models={flatModels}
+              />
             </div>
           </div>
 
@@ -555,6 +640,9 @@ export default function PlaygroundPage() {
                 meta={stream.meta}
                 modelName={stream.modelName}
                 promptName={stream.promptName}
+                errorMessage={stream.errorMessage}
+                scores={stream.scores ?? null}
+                traceId={stream.traceId ?? null}
               />
             </CardContent>
           </Card>

@@ -1,11 +1,21 @@
 "use client";
 
+import { useMemo } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { Input } from "@/components/ui/Input";
 import { Badge } from "@/components/ui/Badge";
-import { models, providerLabels } from "@/lib/mock/data";
+import { useModelList } from "@/lib/hooks/useModels";
+import type { ModelInfo as Model } from "@/lib/types/api";
 import type { ModelConfig, WizardState } from "./wizardState";
 import { cn, formatCurrency } from "@/lib/utils";
+
+const PROVIDER_LABELS: Record<string, string> = {
+  azure: "Azure OpenAI",
+  openai: "OpenAI",
+  google: "Google",
+  anthropic: "Anthropic",
+  bedrock: "AWS Bedrock",
+};
 
 interface WizardStep2Props {
   state: WizardState;
@@ -13,6 +23,12 @@ interface WizardStep2Props {
 }
 
 export function WizardStep2({ state, onChange }: WizardStep2Props) {
+  const { data: modelListResp } = useModelList();
+  const models = useMemo<Model[]>(
+    () => modelListResp?.models ?? [],
+    [modelListResp]
+  );
+  const providerLabels = PROVIDER_LABELS;
   const totalRuns = state.models.length * state.promptVersions.length;
 
   const toggleModel = (modelId: string) => {
@@ -96,9 +112,9 @@ export function WizardStep2({ state, onChange }: WizardStep2Props) {
                       {model.vision && <Badge tone="info">vision</Badge>}
                     </div>
                     <div className="mt-0.5 text-[11px] text-zinc-500">
-                      ctx {Math.round(model.contextWindow / 1000)}K · in{" "}
-                      {formatCurrency(model.inputCostPerK, 4)}/1K · out{" "}
-                      {formatCurrency(model.outputCostPerK, 4)}/1K
+                      ctx {Math.round(model.context_window / 1000)}K · in{" "}
+                      {formatCurrency(model.input_cost_per_k, 4)}/1K · out{" "}
+                      {formatCurrency(model.output_cost_per_k, 4)}/1K
                     </div>
                   </div>
                   {checked && cfg && (
@@ -157,7 +173,7 @@ export function WizardStep2({ state, onChange }: WizardStep2Props) {
                       id={`maxtok-${model.id}`}
                       type="number"
                       min={1}
-                      max={model.contextWindow}
+                      max={model.context_window}
                       step={64}
                       value={cfg.maxTokens}
                       onChange={(e) =>

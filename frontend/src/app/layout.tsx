@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { AppShell } from "@/components/layout/AppShell";
+import { BasketProvider } from "@/lib/basket";
+import { QueryProvider } from "@/lib/queryClient";
+import { AuthProvider } from "@/lib/auth";
 
 export const metadata: Metadata = {
   title: "GenAI Labs",
@@ -32,7 +35,13 @@ export default function RootLayout({
         />
       </head>
       <body className="bg-zinc-950 text-zinc-100 antialiased">
-        <AppShell>{children}</AppShell>
+        <QueryProvider>
+          <AuthProvider>
+            <BasketProvider>
+              <AppShell>{children}</AppShell>
+            </BasketProvider>
+          </AuthProvider>
+        </QueryProvider>
       </body>
     </html>
   );

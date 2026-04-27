@@ -4,9 +4,13 @@ import { useMemo } from "react";
 import { Input, Textarea } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Badge } from "@/components/ui/Badge";
-import { datasets, prompts } from "@/lib/mock/data";
+import { useDatasetList } from "@/lib/hooks/useDatasets";
+import { usePromptList, usePromptVersions } from "@/lib/hooks/usePrompts";
+import type { DatasetSummary } from "@/lib/types/api";
 import type { WizardState } from "./wizardState";
 import { cn } from "@/lib/utils";
+
+const DEFAULT_PROJECT_ID = "production-api";
 
 interface WizardStep1Props {
   state: WizardState;
@@ -14,14 +18,36 @@ interface WizardStep1Props {
 }
 
 export function WizardStep1({ state, onChange }: WizardStep1Props) {
+  const projectId = DEFAULT_PROJECT_ID;
+
+  const { data: promptListResp } = usePromptList(projectId);
+  const { data: datasetListResp } = useDatasetList(projectId);
+
+  const prompts = useMemo(
+    () => promptListResp?.items ?? [],
+    [promptListResp]
+  );
+  const datasets = useMemo<DatasetSummary[]>(() => {
+    if (!datasetListResp) return [];
+    if ("datasets" in datasetListResp) return datasetListResp.datasets;
+    if ("items" in datasetListResp) return datasetListResp.items;
+    return [];
+  }, [datasetListResp]);
+
   const selectedPrompt = useMemo(
-    () => prompts.find((p) => p.id === state.promptId),
-    [state.promptId]
+    () => prompts.find((p) => p.name === state.promptId),
+    [prompts, state.promptId]
   );
   const selectedDataset = useMemo(
-    () => datasets.find((d) => d.id === state.datasetId),
-    [state.datasetId]
+    () => datasets.find((d) => d.name === state.datasetId),
+    [datasets, state.datasetId]
   );
+
+  const { data: versionsResp } = usePromptVersions(
+    projectId,
+    selectedPrompt?.name ?? null
+  );
+  const versions = versionsResp?.versions ?? [];
 
   const handlePromptChange = (promptId: string) => {
     onChange({ promptId, promptVersions: [] });
@@ -88,16 +114,11 @@ export function WizardStep1({ state, onChange }: WizardStep1Props) {
           >
             <option value="">프롬프트를 선택하세요</option>
             {prompts.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name} (v{p.latestVersion})
+              <option key={p.name} value={p.name}>
+                {p.name} (v{p.latest_version})
               </option>
             ))}
           </Select>
-          {selectedPrompt?.description && (
-            <p className="line-clamp-2 text-[11px] text-zinc-500">
-              {selectedPrompt.description}
-            </p>
-          )}
         </div>
 
         <div className="space-y-1.5">
@@ -115,15 +136,17 @@ export function WizardStep1({ state, onChange }: WizardStep1Props) {
           >
             <option value="">데이터셋을 선택하세요</option>
             {datasets.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.name} ({d.itemCount} items)
+              <option key={d.name} value={d.name}>
+                {d.name} ({d.item_count} items)
               </option>
             ))}
           </Select>
           {selectedDataset && (
             <p className="text-[11px] text-zinc-500">
-              {selectedDataset.itemCount} items ·{" "}
-              {new Date(selectedDataset.createdAt).toLocaleDateString("ko-KR")}{" "}
+              {selectedDataset.item_count} items ·{" "}
+              {new Date(selectedDataset.created_at).toLocaleDateString(
+                "ko-KR"
+              )}{" "}
               생성
             </p>
           )}
@@ -137,7 +160,7 @@ export function WizardStep1({ state, onChange }: WizardStep1Props) {
             <span className="ml-1 text-rose-400">*</span>
           </span>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {selectedPrompt.versions.map((v) => {
+            {versions.map((v) => {
               const checked = state.promptVersions.includes(v.version);
               return (
                 <label
@@ -160,21 +183,23 @@ export function WizardStep1({ state, onChange }: WizardStep1Props) {
                       <span className="font-mono text-sm text-zinc-100">
                         v{v.version}
                       </span>
-                      {v.version === selectedPrompt.latestVersion && (
+                      {v.version === selectedPrompt.latest_version && (
                         <Badge tone="accent">latest</Badge>
                       )}
                     </div>
-                    <div className="mt-0.5 line-clamp-2 text-[11px] text-zinc-500">
-                      {v.body.replace(/\n+/g, " ").slice(0, 80)}…
-                    </div>
                     <div className="mt-1 text-[10px] text-zinc-600">
-                      {v.author} ·{" "}
-                      {new Date(v.createdAt).toLocaleDateString("ko-KR")}
+                      {v.created_by ?? "—"} ·{" "}
+                      {new Date(v.created_at).toLocaleDateString("ko-KR")}
                     </div>
                   </div>
                 </label>
               );
             })}
+            {versions.length === 0 && (
+              <p className="text-[11px] text-zinc-500">
+                버전 정보를 불러오는 중…
+              </p>
+            )}
           </div>
         </div>
       )}

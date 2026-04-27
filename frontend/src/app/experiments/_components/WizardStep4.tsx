@@ -3,24 +3,66 @@
 import { useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
-import { datasets, evaluators, models, prompts } from "@/lib/mock/data";
+import { useDatasetList } from "@/lib/hooks/useDatasets";
+import {
+  useApprovedEvaluators,
+  useBuiltInEvaluators,
+} from "@/lib/hooks/useEvaluators";
+import { useModelList } from "@/lib/hooks/useModels";
+import { usePromptList } from "@/lib/hooks/usePrompts";
+import type { DatasetSummary, ModelInfo } from "@/lib/types/api";
 import type { WizardState } from "./wizardState";
 import { formatCurrency, formatNumber } from "@/lib/utils";
+
+const DEFAULT_PROJECT_ID = "production-api";
+const AVG_INPUT_TOKENS_PER_ITEM = 200;
+const AVG_OUTPUT_TOKENS_PER_ITEM = 120;
 
 interface WizardStep4Props {
   state: WizardState;
 }
 
-// Rough avg-token assumption per item — for cost estimate only.
-const AVG_INPUT_TOKENS_PER_ITEM = 200;
-const AVG_OUTPUT_TOKENS_PER_ITEM = 120;
-
 export function WizardStep4({ state }: WizardStep4Props) {
-  const prompt = prompts.find((p) => p.id === state.promptId);
-  const dataset = datasets.find((d) => d.id === state.datasetId);
+  const projectId = DEFAULT_PROJECT_ID;
+
+  const { data: promptListResp } = usePromptList(projectId);
+  const { data: datasetListResp } = useDatasetList(projectId);
+  const { data: modelListResp } = useModelList();
+  const { data: builtInResp } = useBuiltInEvaluators();
+  const { data: approvedResp } = useApprovedEvaluators(projectId);
+
+  const prompts = promptListResp?.items ?? [];
+  const datasets = useMemo<DatasetSummary[]>(() => {
+    if (!datasetListResp) return [];
+    if ("datasets" in datasetListResp) return datasetListResp.datasets;
+    if ("items" in datasetListResp) return datasetListResp.items;
+    return [];
+  }, [datasetListResp]);
+  const models = useMemo<ModelInfo[]>(
+    () => modelListResp?.models ?? [],
+    [modelListResp]
+  );
+
+  type EvaluatorOption = { id: string; name: string; type: string };
+  const evaluators = useMemo<EvaluatorOption[]>(() => {
+    const builtIn: EvaluatorOption[] = (builtInResp?.evaluators ?? []).map(
+      (e) => ({ id: e.name, name: e.name, type: "builtin" })
+    );
+    const approved: EvaluatorOption[] = (
+      approvedResp?.evaluators ?? []
+    ).map((e) => ({
+      id: e.submission_id,
+      name: e.name,
+      type: "custom",
+    }));
+    return [...builtIn, ...approved];
+  }, [builtInResp, approvedResp]);
+
+  const prompt = prompts.find((p) => p.name === state.promptId);
+  const dataset = datasets.find((d) => d.name === state.datasetId);
 
   const totalRuns = state.models.length * state.promptVersions.length;
-  const itemCount = dataset?.itemCount ?? 0;
+  const itemCount = dataset?.item_count ?? 0;
   const totalCalls = totalRuns * itemCount;
 
   const estimatedCost = useMemo(() => {
@@ -30,14 +72,16 @@ export function WizardStep4({ state }: WizardStep4Props) {
       if (!m) return acc;
       const itemsForThisModel = state.promptVersions.length * itemCount;
       const inputCost =
-        (AVG_INPUT_TOKENS_PER_ITEM / 1000) * m.inputCostPerK * itemsForThisModel;
+        (AVG_INPUT_TOKENS_PER_ITEM / 1000) *
+        m.input_cost_per_k *
+        itemsForThisModel;
       const outputCost =
         (AVG_OUTPUT_TOKENS_PER_ITEM / 1000) *
-        m.outputCostPerK *
+        m.output_cost_per_k *
         itemsForThisModel;
       return acc + inputCost + outputCost;
     }, 0);
-  }, [state.models, state.promptVersions.length, itemCount, dataset]);
+  }, [state.models, state.promptVersions.length, itemCount, dataset, models]);
 
   const selectedEvaluators = state.evaluators
     .map((e) => evaluators.find((ev) => ev.id === e.evaluatorId))
