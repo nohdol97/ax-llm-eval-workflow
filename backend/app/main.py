@@ -17,12 +17,14 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
 from app.api.v1 import datasets as datasets_router
+from app.api.v1 import experiments as experiments_router
 from app.api.v1 import health as health_router
 from app.api.v1 import models as models_router
 from app.api.v1 import notifications as notifications_router
 from app.api.v1 import projects as projects_router
 from app.api.v1 import prompts as prompts_router
 from app.api.v1 import search as search_router
+from app.api.v1 import tests as tests_router
 from app.core.config import Settings, get_settings
 from app.core.errors import register_exception_handlers
 from app.core.logging import get_logger
@@ -134,6 +136,8 @@ def create_app() -> FastAPI:
     app.include_router(search_router.router, prefix="/api/v1")
     app.include_router(notifications_router.router, prefix="/api/v1")
     app.include_router(datasets_router.router, prefix="/api/v1")
+    app.include_router(tests_router.router, prefix="/api/v1")
+    app.include_router(experiments_router.router, prefix="/api/v1")
 
     return app
 

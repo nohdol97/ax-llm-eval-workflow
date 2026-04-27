@@ -48,7 +48,7 @@ test = [
     "pytest-asyncio>=0.25.0",
     "pytest-cov>=6.0.0",
     "pytest-mock>=3.14.0",
-    "fakeredis>=2.26.0",
+    "fakeredis[lua]>=2.26.0",
     "respx>=0.22.0",
     "freezegun>=1.5.0",
     "anyio>=4.7.0",
@@ -106,7 +106,7 @@ select = ["E", "F", "I", "B", "UP", "N", "S", "W"]
 ignore = ["S101", "B008"]  # allow assert in tests, allow Depends() in defaults
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S105", "S106"]  # allow hardcoded passwords in tests
+"tests/**" = ["S105", "S106", "N802"]  # allow hardcoded passwords + Korean test names
 
 [tool.mypy]
 python_version = "3.12"

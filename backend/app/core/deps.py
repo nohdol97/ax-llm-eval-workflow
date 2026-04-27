@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import Any
 
 from fastapi import Depends, Request
@@ -16,9 +17,11 @@ from app.services.clickhouse_client import (
     ClickHouseClient,
     LangfusePublicAPIFallbackClient,
 )
+from app.services.context_engine import ContextEngine
 from app.services.langfuse_client import LangfuseClient
 from app.services.litellm_client import LiteLLMClient
 from app.services.redis_client import RedisClient
+from app.services.single_test_runner import SingleTestRunner
 
 
 def get_app_settings() -> Settings:
@@ -71,6 +74,26 @@ def get_project_configs(
     return [ProjectConfig.model_validate(entry) for entry in settings.projects()]
 
 
+# ---------- Context Engine / Single Test Runner ----------
+@lru_cache(maxsize=1)
+def get_context_engine() -> ContextEngine:
+    """프로세스 단위 ``ContextEngine`` 싱글턴 (무상태)."""
+    return ContextEngine()
+
+
+def get_single_test_runner(
+    langfuse: LangfuseClient = Depends(get_langfuse_client),
+    litellm: LiteLLMClient = Depends(get_litellm_client),
+    context_engine: ContextEngine = Depends(get_context_engine),
+) -> SingleTestRunner:
+    """``SingleTestRunner`` 의존성 — 요청마다 가벼운 인스턴스 생성."""
+    return SingleTestRunner(
+        langfuse=langfuse,
+        litellm=litellm,
+        context_engine=context_engine,
+    )
+
+
 # ---------- 합성 의존성 ----------
 def get_clients(
     settings: Settings = Depends(get_app_settings),
@@ -85,3 +108,45 @@ def get_clients(
         "litellm": litellm,
         "redis": redis,
     }
+
+
+# ---------- 실험 조회/제어 (Phase 4) ----------
+def get_experiment_control(
+    redis: RedisClient = Depends(get_redis_client),
+) -> Any:
+    """``ExperimentControl`` 의존성. lazy import로 순환 회피."""
+    from app.services.experiment_control import ExperimentControl
+
+    return ExperimentControl(redis=redis)
+
+
+def get_experiment_query(
+    redis: RedisClient = Depends(get_redis_client),
+    langfuse: LangfuseClient = Depends(get_langfuse_client),
+) -> Any:
+    """``ExperimentQuery`` 의존성. lazy import로 순환 회피."""
+    from app.services.experiment_query import ExperimentQuery
+
+    return ExperimentQuery(redis=redis, langfuse=langfuse)
+
+
+# ---------- 배치 실험 실행기 (Phase 4) ----------
+def get_batch_runner(
+    langfuse: LangfuseClient = Depends(get_langfuse_client),
+    litellm: LiteLLMClient = Depends(get_litellm_client),
+    redis: RedisClient = Depends(get_redis_client),
+    context_engine: ContextEngine = Depends(get_context_engine),
+) -> Any:
+    """``BatchExperimentRunner`` 의존성.
+
+    실 환경: ``app.state``의 클라이언트 + ``ContextEngine`` 싱글턴 합성.
+    테스트: ``app.dependency_overrides[get_batch_runner]``로 mock 주입.
+    """
+    from app.services.batch_runner import BatchExperimentRunner
+
+    return BatchExperimentRunner(
+        langfuse=langfuse,
+        litellm=litellm,
+        redis=redis,
+        context_engine=context_engine,
+    )

@@ -175,15 +175,32 @@ async def _http_exception_handler(request: Request, exc: Exception) -> JSONRespo
 async def _validation_exception_handler(
     request: Request, exc: Exception
 ) -> JSONResponse:
-    """Pydantic/FastAPI 검증 에러 핸들러."""
+    """Pydantic/FastAPI 검증 에러 핸들러.
+
+    ``exc.errors()`` 결과는 ``ctx.error`` 등에 raw Exception 객체를 포함할 수 있어
+    JSON 직렬화 시 ``TypeError``가 발생한다. 이를 방지하기 위해 직렬화 불가 값은
+    ``str(...)``로 변환한다.
+    """
     assert isinstance(exc, RequestValidationError)
+    safe_errors: list[dict[str, Any]] = []
+    for err in exc.errors():
+        safe_err: dict[str, Any] = {}
+        for key, value in err.items():
+            if key == "ctx" and isinstance(value, dict):
+                safe_err["ctx"] = {
+                    k: (str(v) if isinstance(v, BaseException) else v)
+                    for k, v in value.items()
+                }
+            else:
+                safe_err[key] = value
+        safe_errors.append(safe_err)
     return _problem_response(
         status=422,
         title="Request validation failed",
         detail="요청 본문이 스키마와 일치하지 않습니다.",
         code="validation_error",
         instance=str(request.url.path),
-        extras={"errors": exc.errors()},
+        extras={"errors": safe_errors},
     )
 
 
