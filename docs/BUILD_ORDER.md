@@ -8,6 +8,8 @@
 ## 사내 공용 인프라 의존 [Canonical]
 
 > **본 절은 본 프로젝트(ax-llm-eval-workflow)의 인프라 분담의 단일 진실 원본이다.** Phase 1·7·8 및 마이그레이션/롤백/체크리스트 절은 본 절을 참조한다.
+>
+> **실행 가이드**: 본 절을 실제 사내 협의·티켓 발행·검증 단계로 풀어쓴 운영 체크리스트는 [`INFRA_INTEGRATION_CHECKLIST.md`](INFRA_INTEGRATION_CHECKLIST.md) 참조.
 
 본 프로젝트는 **사내 공용 인프라**의 다음 서비스를 사용한다. 별도 기동/운영하지 않으며, 사내 인프라팀과의 사전 합의(API Key 발급, 모델 등록, scrape job 추가 등)가 Phase 1 시작 조건이다.
 
