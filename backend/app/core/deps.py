@@ -11,6 +11,7 @@ from typing import Any
 from fastapi import Depends, Request
 
 from app.core.config import Settings, get_settings
+from app.models.project import ProjectConfig
 from app.services.clickhouse_client import (
     ClickHouseClient,
     LangfusePublicAPIFallbackClient,
@@ -57,6 +58,17 @@ def get_clickhouse_client(
     설정에 따라 ``None``일 수 있음 (직접 모드 미사용 + 폴백 미구성).
     """
     return getattr(request.app.state, "clickhouse", None)  # type: ignore[no-any-return]
+
+
+# ---------- 프로젝트 ----------
+def get_project_configs(
+    settings: Settings = Depends(get_app_settings),
+) -> list[ProjectConfig]:
+    """``Settings.projects()``를 ``ProjectConfig`` 리스트로 매핑.
+
+    파싱 실패 시 ``ValueError``가 그대로 전파되어 422/500으로 변환된다.
+    """
+    return [ProjectConfig.model_validate(entry) for entry in settings.projects()]
 
 
 # ---------- 합성 의존성 ----------

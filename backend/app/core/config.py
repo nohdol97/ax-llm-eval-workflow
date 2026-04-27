@@ -7,8 +7,9 @@ Prometheus, OTel, Loki) 등은 모두 graceful 기본값을 가진다. 비밀은
 
 from __future__ import annotations
 
+import json
 from functools import lru_cache
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -138,6 +139,17 @@ class Settings(BaseSettings):
         description="허용 CORS origin 목록",
     )
 
+    # ---------- 멀티 프로젝트 (IMPLEMENTATION.md §3) ----------
+    LABS_PROJECTS_JSON: str = Field(
+        default="",
+        description=(
+            "프로젝트 정의 JSON 배열. "
+            "각 항목은 `{id, name, description?, langfuse_host?, "
+            "langfuse_public_key?, langfuse_secret_key?}`. "
+            "비어 있으면 단일 기본 프로젝트(`default`) 1건이 자동 등록된다."
+        ),
+    )
+
     # ---------- 파생 ----------
     @property
     def is_production(self) -> bool:
@@ -160,6 +172,47 @@ class Settings(BaseSettings):
     def clickhouse_configured(self) -> bool:
         """ClickHouse 직접 모드 사용 가능 여부."""
         return bool(self.CLICKHOUSE_HOST) and bool(self.CLICKHOUSE_READONLY_USER)
+
+    # ---------- 프로젝트 카탈로그 ----------
+    def projects(self) -> list[dict[str, Any]]:
+        """``LABS_PROJECTS_JSON``을 파싱하여 dict 리스트로 반환.
+
+        - 미설정 시 단일 기본 프로젝트(``default``) 1건을 반환한다.
+        - 잘못된 JSON 또는 list가 아닌 형태는 ``ValueError``로 raise하여
+          기동 시점에 명시적으로 실패시킨다.
+        """
+        raw = (self.LABS_PROJECTS_JSON or "").strip()
+        if not raw:
+            return [
+                {
+                    "id": "default",
+                    "name": "Default Project",
+                    "description": "Default project (no LABS_PROJECTS_JSON configured)",
+                    "langfuse_host": self.LANGFUSE_HOST or None,
+                    "langfuse_public_key": self.LANGFUSE_PUBLIC_KEY or None,
+                    "langfuse_secret_key": (
+                        self.LANGFUSE_SECRET_KEY.get_secret_value()
+                        if self.LANGFUSE_SECRET_KEY.get_secret_value()
+                        else None
+                    ),
+                }
+            ]
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                f"LABS_PROJECTS_JSON 파싱 실패: {exc}"
+            ) from exc
+        if not isinstance(parsed, list):
+            raise ValueError("LABS_PROJECTS_JSON은 JSON 배열이어야 합니다.")
+        result: list[dict[str, Any]] = []
+        for entry in parsed:
+            if not isinstance(entry, dict):
+                raise ValueError(
+                    "LABS_PROJECTS_JSON 각 항목은 객체(dict)여야 합니다."
+                )
+            result.append(dict(entry))
+        return result
 
 
 @lru_cache
