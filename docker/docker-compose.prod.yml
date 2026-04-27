@@ -1,0 +1,79 @@
+# ─────────────────────────────────────────────────────────────────────
+# 운영 환경 override
+#
+# 운영 가정:
+#   - 사내 reverse proxy 배후 → 호스트 포트 노출 없음 (expose만 사용)
+#   - 시크릿은 사내 secret store(Vault/KMS)에서 Docker secrets로 주입
+#   - 리소스 제한 + 자동 재시작
+#   - OTel sampler 0.1 (운영 부하 고려)
+#
+# 기동 명령:
+#   docker compose -f docker/docker-compose.yml \
+#     -f docker/docker-compose.prod.yml \
+#     --env-file docker/.env.production up -d
+#
+# 참고: BUILD_ORDER.md Phase 1 작업 1-1, ADR-011
+# ─────────────────────────────────────────────────────────────────────
+
+services:
+  backend:
+    environment:
+      - LABS_ENV=production
+      - LABS_LOG_LEVEL=INFO
+      - OTEL_TRACES_SAMPLER_ARG=0.1
+    # 호스트 포트 미노출 — expose만 (사내 reverse proxy가 backend_net으로
+    # 접근하므로 외부 노출 불필요)
+    mem_limit: 2g
+    mem_reservation: 1g
+    cpus: 2.0
+    restart: always
+    # 사내 secret store에서 마운트되는 Docker secrets
+    # (운영 환경에서는 .env에 시크릿 평문 보관 금지 — ADR-011)
+    secrets:
+      - langfuse_secret_key
+      - litellm_virtual_key
+      - clickhouse_readonly_password
+      - redis_password
+      - otel_otlp_headers
+    # 컨테이너 보안 강화
+    read_only: false  # uvicorn은 /tmp 등 쓰기 필요
+    security_opt:
+      - no-new-privileges:true
+
+  frontend:
+    environment:
+      - NODE_ENV=production
+      - LABS_ENV=production
+    mem_limit: 512m
+    mem_reservation: 256m
+    cpus: 1.0
+    restart: always
+    read_only: false
+    security_opt:
+      - no-new-privileges:true
+
+  # 운영 환경에서 자체 redis를 운영하는 경우만 적용 (사내 Redis 임차가 1순위)
+  redis:
+    mem_limit: 512m
+    cpus: 0.5
+    restart: always
+    secrets:
+      - redis_password
+    profiles:
+      - self-hosted-redis
+
+# ── Docker secrets ─────────────────────────────────────────────
+# 운영 환경에서는 사내 secret store(Vault/KMS) → 디스크 파일 경유로
+# 주입한다. 본 compose에서는 파일 경로만 정의하며, 실제 파일은 사내
+# 배포 파이프라인이 사전에 생성한다.
+secrets:
+  langfuse_secret_key:
+    file: /run/secrets/labs/langfuse_secret_key
+  litellm_virtual_key:
+    file: /run/secrets/labs/litellm_virtual_key
+  clickhouse_readonly_password:
+    file: /run/secrets/labs/clickhouse_readonly_password
+  redis_password:
+    file: /run/secrets/labs/redis_password
+  otel_otlp_headers:
+    file: /run/secrets/labs/otel_otlp_headers

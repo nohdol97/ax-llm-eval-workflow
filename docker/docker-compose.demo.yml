@@ -1,0 +1,66 @@
+# ─────────────────────────────────────────────────────────────────────
+# 데모 환경 override
+#
+# 데모는 사내 인프라가 사전 기동되어 있으며, 본 compose는 backend/frontend
+# 빌드 + seed 컨테이너로 데모 데이터를 1회 주입한다.
+#
+# 주요 설정:
+#   - LABS_ENV=demo
+#   - 리소스 제한 (mem_limit) — 데모 호스트 보호
+#   - seed 컨테이너 — backend healthy 이후 1회 실행, 실패 시 재시도
+#     (모든 시드는 idempotent — 이름/버전 기반 존재 검사 후 skip)
+#   - OTel sampler 1.0 (모든 trace 수집 — 시연 가시성 우선)
+#
+# 기동 명령:
+#   docker compose -f docker/docker-compose.yml \
+#     -f docker/docker-compose.demo.yml \
+#     --env-file docker/.env.demo up -d
+#
+# 참고: BUILD_ORDER.md Phase 1 작업 1-1
+# ─────────────────────────────────────────────────────────────────────
+
+services:
+  backend:
+    environment:
+      - LABS_ENV=demo
+      - LABS_LOG_LEVEL=INFO
+      - OTEL_TRACES_SAMPLER_ARG=1.0
+    # 데모 호스트 리소스 보호
+    mem_limit: 512m
+    mem_reservation: 256m
+    cpus: 1.0
+
+  frontend:
+    environment:
+      - NODE_ENV=production
+      - LABS_ENV=demo
+    mem_limit: 256m
+    mem_reservation: 128m
+    cpus: 0.5
+
+  # ── seed 컨테이너 ───────────────────────────────────────────────
+  # backend healthy 이후 1회 실행되는 seed 컨테이너. 데이터셋·프롬프트·
+  # 실험·score config를 사내 Langfuse에 idempotent 등록한다.
+  # restart: on-failure 로 일시 오류만 재시도, 정상 종료 시 종료 유지.
+  seed:
+    # Backend 이미지를 재사용하여 scripts/seed_langfuse.py 실행
+    # (별도 작업에서 스크립트를 작성한다 — 본 단계에서는 placeholder)
+    image: ax-llm-eval-workflow-backend:${LABS_IMAGE_TAG:-latest}
+    env_file:
+      - .env
+    environment:
+      - LABS_ENV=demo
+      - LABS_SEED_MODE=demo
+      - LABS_LOG_LEVEL=INFO
+    networks:
+      - backend_net
+    depends_on:
+      backend:
+        condition: service_healthy
+    # placeholder — 실제 시드 스크립트 구현은 별도 작업
+    command: ["python", "-m", "scripts.seed_langfuse"]
+    # 일시 오류(네트워크 등)에만 재시도 — 정상 종료(0) 시 종료 유지
+    restart: on-failure
+    # 시드는 일회성이므로 healthcheck 불필요
+    profiles:
+      - default

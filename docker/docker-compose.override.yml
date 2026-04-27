@@ -1,0 +1,58 @@
+# ─────────────────────────────────────────────────────────────────────
+# 로컬 개발 override (자동 병합)
+#
+# `docker compose up`만 실행해도 본 파일이 자동으로 병합된다.
+# 개발 편의 위주의 설정이므로 운영/데모에는 적용하지 않는다.
+#
+# 차이점 요약:
+#   - backend / frontend / redis 호스트 포트 노출 (디버깅 편의)
+#   - 코드 볼륨 마운트로 핫리로드 지원
+#   - LABS_LOG_LEVEL=DEBUG, OTEL trace sampler off (0.0)
+#
+# 참고: BUILD_ORDER.md Phase 1 작업 1-1
+# ─────────────────────────────────────────────────────────────────────
+
+services:
+  backend:
+    # 개발 환경에서는 호스트에서 직접 호출 가능하도록 포트 노출
+    ports:
+      - "8000:8000"
+    environment:
+      - LABS_ENV=development
+      - LABS_LOG_LEVEL=DEBUG
+      # 개발 환경은 trace sampling을 끈다 — 사내 OTel Collector 부하 방지
+      - OTEL_TRACES_SAMPLER_ARG=0.0
+      # uvicorn 핫리로드 지원
+      - UVICORN_RELOAD=true
+    volumes:
+      # 핫리로드를 위해 backend 소스를 컨테이너에 바인드 마운트
+      - ../backend/app:/app/app:rw
+      - ../backend/pyproject.toml:/app/pyproject.toml:ro
+    # 개발 환경은 핫리로드 + 단일 워커
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+
+  frontend:
+    # Next.js dev 서버 포트 노출
+    ports:
+      - "3100:3100"
+    environment:
+      - NODE_ENV=development
+      - LABS_ENV=development
+    volumes:
+      # Next.js 핫리로드를 위한 소스 마운트 (.next 캐시는 익명 볼륨으로 격리)
+      - ../frontend/src:/app/src:rw
+      - ../frontend/public:/app/public:rw
+      - ../frontend/next.config.ts:/app/next.config.ts:ro
+      - ../frontend/tsconfig.json:/app/tsconfig.json:ro
+      - ../frontend/package.json:/app/package.json:ro
+      - /app/node_modules
+      - /app/.next
+    # 개발 환경은 next dev 사용
+    command: ["npm", "run", "dev"]
+
+  redis:
+    # 자체 운영 모드일 때만 활성 (profile=self-hosted-redis)
+    ports:
+      - "6379:6379"
+    profiles:
+      - self-hosted-redis

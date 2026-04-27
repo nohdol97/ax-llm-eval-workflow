@@ -1,0 +1,54 @@
+# Backend Dockerfile 빌드 컨텍스트 제외 목록
+
+# 버전 관리
+.git
+.gitignore
+.gitattributes
+
+# 환경변수 (시크릿 유출 방지)
+.env
+.env.*
+!.env.example
+
+# 가상환경 / 패키지 빌드 산출물
+.venv
+venv
+env
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.egg-info
+.eggs
+build
+dist
+wheels
+
+# 테스트 / 캐시
+tests
+.pytest_cache
+.coverage
+.coverage.*
+htmlcov
+coverage.xml
+.mypy_cache
+.ruff_cache
+.tox
+
+# IDE / 에디터
+.vscode
+.idea
+*.swp
+*.swo
+.DS_Store
+
+# 문서 (이미지 크기 절감)
+docs
+*.md
+!README.md
+
+# 컨테이너 / CI 메타데이터
+Dockerfile
+.dockerignore
+.github
+docker-compose*.yml

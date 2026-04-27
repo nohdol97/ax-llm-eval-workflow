@@ -1,0 +1,115 @@
+[project]
+name = "ax-llm-eval-workflow-backend"
+version = "0.1.0"
+description = "Langfuse v3 기반 LLM 프롬프트 실험/평가 워크플로우 — Backend"
+requires-python = ">=3.12"
+authors = [{ name = "labs platform" }]
+readme = "README.md"
+
+dependencies = [
+    # Web framework
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.7.0",
+    "python-multipart>=0.0.20",
+
+    # HTTP client
+    "httpx>=0.28.0",
+
+    # Auth
+    "pyjwt[crypto]>=2.10.0",
+
+    # Data layer
+    "redis>=5.2.0",
+    "clickhouse-connect>=0.8.0",
+
+    # LLM SDKs
+    "langfuse>=2.50.0",
+    "litellm>=1.55.0",
+
+    # Observability
+    "prometheus-fastapi-instrumentator>=7.0.0",
+    "opentelemetry-api>=1.29.0",
+    "opentelemetry-sdk>=1.29.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.29.0",
+    "opentelemetry-instrumentation-fastapi>=0.50b0",
+    "opentelemetry-instrumentation-httpx>=0.50b0",
+    "opentelemetry-instrumentation-redis>=0.50b0",
+    "structlog>=24.4.0",
+
+    # Misc
+    "tenacity>=9.0.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.25.0",
+    "pytest-cov>=6.0.0",
+    "pytest-mock>=3.14.0",
+    "fakeredis>=2.26.0",
+    "respx>=0.22.0",
+    "freezegun>=1.5.0",
+    "anyio>=4.7.0",
+]
+
+dev = [
+    "ruff>=0.8.0",
+    "mypy>=1.13.0",
+]
+
+[build-system]
+requires = ["setuptools>=70"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+exclude = ["tests*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+addopts = "-ra --strict-markers --tb=short"
+markers = [
+    "unit: 단위 테스트 (외부 의존성 없음)",
+    "integration: 통합 테스트 (외부 서비스 mock 필요)",
+    "infra: 인프라 검증 테스트 (실제 서비스 의존)",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning:pydantic.*",
+]
+
+[tool.coverage.run]
+source = ["app"]
+branch = true
+omit = ["app/__init__.py", "tests/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]
+show_missing = true
+skip_covered = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "N", "S", "W"]
+ignore = ["S101", "B008"]  # allow assert in tests, allow Depends() in defaults
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S105", "S106"]  # allow hardcoded passwords in tests
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+ignore_missing_imports = true
