@@ -40,6 +40,9 @@ dependencies = [
 
     # Misc
     "tenacity>=9.0.0",
+
+    # Evaluators (Phase 5)
+    "jsonschema>=4.23.0",
 ]
 
 [project.optional-dependencies]

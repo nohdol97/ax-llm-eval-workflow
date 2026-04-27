@@ -67,7 +67,11 @@ class SingleTestRequest(BaseModel):
     stream: bool = Field(default=True, description="True=SSE, False=JSON 응답")
     evaluators: list[dict[str, Any]] | None = Field(
         default=None,
-        description="평가자 목록 (Phase 5에서 활성화 예정 — 현재는 무시)",
+        description="평가자 목록 (Phase 5: builtin/judge/approved/inline_custom).",
+    )
+    expected_output: str | dict[str, Any] | list[Any] | None = Field(
+        default=None,
+        description="정답(레퍼런스) 출력 — evaluator의 ``expected``로 전달 (선택).",
     )
     system_prompt: str | None = Field(default=None, description="옵션 system 프롬프트")
 

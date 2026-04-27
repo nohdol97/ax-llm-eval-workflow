@@ -211,11 +211,16 @@ class BatchExperimentRunner:
         litellm: LiteLLMClient | Any,
         redis: RedisClient | Any,
         context_engine: ContextEngine,
+        evaluation_pipeline: Any | None = None,
+        governance: Any | None = None,
     ) -> None:
         self._langfuse = langfuse
         self._litellm = litellm
         self._redis = redis
         self._context_engine = context_engine
+        # Phase 5: evaluator 통합 (선택적). 미주입 시 lazy 생성.
+        self._eval_pipeline = evaluation_pipeline
+        self._governance = governance
         # 백그라운드 태스크 핸들 (graceful shutdown 용)
         self._tasks: dict[str, asyncio.Task[None]] = {}
 
@@ -234,6 +239,17 @@ class BatchExperimentRunner:
             request: 검증된 ExperimentCreate
             user_id: 실험 시작자 (JWT sub)
         """
+        # 0) Phase 5 — evaluator 가중치 사전 검증 (생성 시점에 1회)
+        if request.evaluators:
+            from app.evaluators.score_calculator import validate_weights
+
+            try:
+                validate_weights(request.evaluators)
+            except ValueError as exc:
+                raise LabsError(
+                    detail=f"evaluator 가중치 검증 실패: {exc}"
+                ) from exc
+
         # 1) 데이터셋 아이템 fetch (총 아이템 수 산출에 필요)
         try:
             from app.services.dataset_service import (
@@ -523,6 +539,7 @@ class BatchExperimentRunner:
                     semaphore=sem,
                     user_id=owner,
                     project_id=project_id,
+                    evaluators=request.evaluators,
                 )
                 total_completed += run_completed
                 total_failed += run_failed
@@ -601,6 +618,7 @@ class BatchExperimentRunner:
         semaphore: asyncio.Semaphore,
         user_id: str,
         project_id: str,
+        evaluators: list[Any] | None = None,
     ) -> tuple[int, int, float]:
         """단일 Run 내에서 모든 아이템을 동시 실행.
 
@@ -640,6 +658,7 @@ class BatchExperimentRunner:
                             system_prompt=system_prompt,
                             user_id=user_id,
                             project_id=project_id,
+                            evaluators=evaluators,
                         )
                         return True, cost
                     except (LiteLLMError, Exception) as exc:  # noqa: BLE001
@@ -720,6 +739,7 @@ class BatchExperimentRunner:
         system_prompt: str | None,
         user_id: str,
         project_id: str,
+        evaluators: list[Any] | None = None,
     ) -> float:
         """단일 아이템 처리 — LLM 호출 + Langfuse trace 기록 + Redis 갱신.
 
@@ -788,6 +808,7 @@ class BatchExperimentRunner:
             cost_value = 0.0
 
         # Langfuse trace + generation 기록 (best-effort)
+        trace_id: str | None = None
         try:
             trace_id = self._langfuse.create_trace(
                 name=f"experiment.{run_name}",
@@ -822,6 +843,37 @@ class BatchExperimentRunner:
                 },
             )
 
+        # Phase 5 — evaluator pipeline 호출 (있을 때만)
+        weighted_score: float | None = None
+        if evaluators:
+            try:
+                expected = item.get("expected_output")
+                scores = await self._evaluate_item(
+                    evaluators=evaluators,
+                    output=output_text,
+                    expected=expected,
+                    metadata={
+                        "latency_ms": latency_ms,
+                        "cost_usd": cost_value,
+                        "item_id": item_id,
+                        "model": model,
+                    },
+                    trace_id=trace_id,
+                )
+                # weighted_score를 Run 통계에 반영
+                ws = scores.get("weighted_score")
+                if isinstance(ws, (int, float)):
+                    weighted_score = float(ws)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "evaluator_run_failed",
+                    extra={
+                        "experiment_id": experiment_id,
+                        "run_name": run_name,
+                        "error": str(exc),
+                    },
+                )
+
         # Redis 진행률 갱신
         underlying = _underlying(self._redis)
         run_full_key = _full_key(self._redis, _run_key(experiment_id, run_name))
@@ -834,6 +886,11 @@ class BatchExperimentRunner:
             pipe.hincrbyfloat(run_full_key, "total_latency_ms", latency_ms)
             pipe.hincrby(exp_full_key, "completed_items", 1)
             pipe.hincrbyfloat(exp_full_key, "total_cost_usd", cost_value)
+            if weighted_score is not None:
+                pipe.hincrbyfloat(
+                    run_full_key, "total_score_sum", float(weighted_score)
+                )
+                pipe.hincrby(run_full_key, "scored_count", 1)
             await pipe.execute()
         except Exception as exc:  # noqa: BLE001
             logger.warning(
@@ -870,6 +927,36 @@ class BatchExperimentRunner:
             pass
 
         return cost_value
+
+    # ---------- 4.5) Evaluator pipeline (Phase 5) ----------
+    async def _evaluate_item(
+        self,
+        *,
+        evaluators: list[Any],
+        output: str | dict[str, Any] | list[Any],
+        expected: str | dict[str, Any] | list[Any] | None,
+        metadata: dict[str, Any],
+        trace_id: str | None,
+    ) -> dict[str, float | None]:
+        """``EvaluationPipeline.evaluate_item`` 호출. 미설정 시 lazy 생성."""
+        pipeline = self._eval_pipeline
+        if pipeline is None:
+            from app.evaluators.pipeline import EvaluationPipeline
+
+            pipeline = EvaluationPipeline(
+                langfuse=self._langfuse,
+                litellm_client=self._litellm,
+            )
+            self._eval_pipeline = pipeline
+
+        result = await pipeline.evaluate_item(
+            evaluators=evaluators,
+            output=output,
+            expected=expected,
+            metadata=metadata,
+            trace_id=trace_id,
+        )
+        return result  # type: ignore[no-any-return]
 
     # ---------- 5) Redis 헬퍼 ----------
     async def _get_status(self, experiment_id: str) -> str:

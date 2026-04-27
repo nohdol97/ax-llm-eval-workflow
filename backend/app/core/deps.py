@@ -143,10 +143,46 @@ def get_batch_runner(
     테스트: ``app.dependency_overrides[get_batch_runner]``로 mock 주입.
     """
     from app.services.batch_runner import BatchExperimentRunner
+    from app.services.evaluator_governance import EvaluatorGovernanceService
 
+    pipeline = _build_evaluation_pipeline(langfuse, litellm)
+    governance = EvaluatorGovernanceService(redis=redis)
     return BatchExperimentRunner(
         langfuse=langfuse,
         litellm=litellm,
         redis=redis,
         context_engine=context_engine,
+        evaluation_pipeline=pipeline,
+        governance=governance,
     )
+
+
+# ---------- Evaluation Pipeline (Phase 5) ----------
+def _build_evaluation_pipeline(
+    langfuse: LangfuseClient,
+    litellm: LiteLLMClient,
+) -> Any:
+    """``EvaluationPipeline`` 인스턴스 생성 — lazy import로 순환 회피."""
+    from app.evaluators.pipeline import EvaluationPipeline
+
+    return EvaluationPipeline(langfuse=langfuse, litellm_client=litellm)
+
+
+def get_evaluation_pipeline(
+    langfuse: LangfuseClient = Depends(get_langfuse_client),
+    litellm: LiteLLMClient = Depends(get_litellm_client),
+) -> Any:
+    """``EvaluationPipeline`` FastAPI 의존성 — Phase 5 evaluator 통합.
+
+    각 요청마다 가벼운 인스턴스를 생성한다 (state는 langfuse/litellm 위임).
+    """
+    return _build_evaluation_pipeline(langfuse, litellm)
+
+
+def get_governance_service(
+    redis: RedisClient = Depends(get_redis_client),
+) -> Any:
+    """``EvaluatorGovernanceService`` 의존성 — Phase 5 거버넌스."""
+    from app.services.evaluator_governance import EvaluatorGovernanceService
+
+    return EvaluatorGovernanceService(redis=redis)

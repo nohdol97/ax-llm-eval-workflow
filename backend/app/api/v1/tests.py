@@ -81,6 +81,7 @@ async def single_test_endpoint(
             evaluators=request.evaluators,
             user_id=user.id,
             system_prompt=request.system_prompt,
+            expected_output=request.expected_output,
         )
     except LabsError:
         raise
@@ -137,6 +138,7 @@ async def _stream_single_test(
             evaluators=request.evaluators,
             user_id=user_id,
             system_prompt=request.system_prompt,
+            expected_output=request.expected_output,
         ):
             event_id += 1
             yield format_sse_event(

@@ -39,6 +39,43 @@ from app.services.litellm_client import LiteLLMClient
 logger = get_logger(__name__)
 
 
+def _build_evaluator_configs(
+    raw: list[dict[str, Any]] | None,
+) -> list[Any]:
+    """``request.evaluators`` raw dict 리스트를 ``EvaluatorConfig``로 검증/변환.
+
+    개별 검증 실패는 캐치해 해당 evaluator만 무시한다 (전체 실험 중단 회피).
+    Phase 5: ``app.models.experiment.EvaluatorConfig``를 lazy import.
+    """
+    if not raw:
+        return []
+    from app.models.experiment import EvaluatorConfig
+
+    items: list[Any] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        try:
+            items.append(EvaluatorConfig.model_validate(entry))
+        except Exception as exc:  # noqa: BLE001 — Pydantic ValidationError 등
+            logger.warning(
+                "evaluator_config_invalid",
+                error=str(exc),
+                evaluator_name=entry.get("name"),
+            )
+    return items
+
+
+def _build_pipeline(
+    langfuse: Any,
+    litellm: Any,
+) -> Any:
+    """``EvaluationPipeline`` 인스턴스 — lazy import."""
+    from app.evaluators.pipeline import EvaluationPipeline
+
+    return EvaluationPipeline(langfuse=langfuse, litellm_client=litellm)
+
+
 # ---------- 내부 유틸 ----------
 def _to_messages(
     prompt: str | list[dict[str, Any]],
@@ -128,10 +165,12 @@ class SingleTestRunner:
         langfuse: LangfuseClient,
         litellm: LiteLLMClient,
         context_engine: ContextEngine,
+        evaluation_pipeline: Any | None = None,
     ) -> None:
         self._langfuse = langfuse
         self._litellm = litellm
         self._engine = context_engine
+        self._eval_pipeline = evaluation_pipeline
 
     # ---------- 프롬프트 해석 ----------
     def _resolve_prompt(
@@ -187,6 +226,7 @@ class SingleTestRunner:
         evaluators: list[dict[str, Any]] | None = None,
         user_id: str = "anonymous",
         system_prompt: str | None = None,
+        expected_output: str | dict[str, Any] | list[Any] | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         """단일 테스트 실행 + SSE 이벤트 dict yield.
 
@@ -199,14 +239,15 @@ class SingleTestRunner:
             variables: 변수 dict.
             model: LiteLLM 등록 모델명.
             parameters: 모델 파라미터 (temperature/top_p/max_tokens 등).
-            evaluators: Phase 5에서 활성화 예정 — 현재는 무시.
+            evaluators: ``EvaluatorConfig`` raw dict 목록 (Phase 5).
             user_id: 사용자 ID (trace user_id에 기록, observability용).
             system_prompt: 옵션 system 메시지.
+            expected_output: 정답(레퍼런스) — evaluator의 ``expected``로 전달.
 
         Yields:
-            ``{"event": "started"|"token"|"done"|"error", "data": {...}}``
+            ``{"event": "started"|"token"|"done"|"scores"|"error", "data": {...}}``
         """
-        _ = evaluators  # Phase 5 placeholder — 현재 미사용
+        evaluator_configs = _build_evaluator_configs(evaluators)
         started_at = datetime.now(UTC)
         start_perf = time.perf_counter()
         trace_id: str | None = None
@@ -319,6 +360,27 @@ class SingleTestRunner:
                 },
             }
 
+            # 8) Phase 5 — evaluator 평가 (선택)
+            if evaluator_configs:
+                scores = await self._evaluate_output(
+                    evaluator_configs=evaluator_configs,
+                    output=output_text,
+                    expected=expected_output,
+                    metadata={
+                        "latency_ms": latency_ms,
+                        "cost_usd": cost_usd,
+                        "output_tokens": usage_final.get("output_tokens", 0),
+                        "total_tokens": usage_final.get("total_tokens", 0),
+                        "input_tokens": usage_final.get("input_tokens", 0),
+                        "model": model,
+                    },
+                    trace_id=trace_id,
+                )
+                yield {
+                    "event": "scores",
+                    "data": {"trace_id": trace_id, "scores": scores},
+                }
+
         except (LiteLLMError, LangfuseError) as exc:
             code = (
                 "LLM_ERROR"
@@ -362,16 +424,18 @@ class SingleTestRunner:
         evaluators: list[dict[str, Any]] | None = None,
         user_id: str = "anonymous",
         system_prompt: str | None = None,
+        expected_output: str | dict[str, Any] | list[Any] | None = None,
     ) -> dict[str, Any]:
         """non-streaming 모드 — 단일 dict 반환.
 
         Returns:
-            ``{trace_id, model, output, usage, latency_ms, cost_usd, started_at, completed_at}``.
+            ``{trace_id, model, output, usage, latency_ms, cost_usd, started_at,
+            completed_at, scores?}``. ``scores``는 ``evaluators`` 지정 시 포함.
 
         Raises:
             ``LabsError`` 계열 (LiteLLMError / LangfuseError 등) — 그대로 전파.
         """
-        _ = evaluators
+        evaluator_configs = _build_evaluator_configs(evaluators)
         started_at = datetime.now(UTC)
         start_perf = time.perf_counter()
         trace_id: str | None = None
@@ -446,7 +510,7 @@ class SingleTestRunner:
                     error=str(exc),
                 )
 
-            return {
+            result: dict[str, Any] = {
                 "trace_id": trace_id,
                 "model": model,
                 "output": output_text,
@@ -456,6 +520,26 @@ class SingleTestRunner:
                 "started_at": started_at,
                 "completed_at": completed_at,
             }
+
+            # Phase 5 — evaluator 평가
+            if evaluator_configs:
+                scores = await self._evaluate_output(
+                    evaluator_configs=evaluator_configs,
+                    output=output_text,
+                    expected=expected_output,
+                    metadata={
+                        "latency_ms": latency_ms,
+                        "cost_usd": cost_usd,
+                        "output_tokens": usage.get("output_tokens", 0),
+                        "total_tokens": usage.get("total_tokens", 0),
+                        "input_tokens": usage.get("input_tokens", 0),
+                        "model": model,
+                    },
+                    trace_id=trace_id,
+                )
+                result["scores"] = scores
+
+            return result
         except LabsError:
             await self._mark_trace_error(trace_id, None)
             raise
@@ -483,6 +567,41 @@ class SingleTestRunner:
         if trace_id:
             data["trace_id"] = trace_id
         return {"event": "error", "data": data}
+
+    async def _evaluate_output(
+        self,
+        *,
+        evaluator_configs: list[Any],
+        output: str | dict[str, Any] | list[Any],
+        expected: str | dict[str, Any] | list[Any] | None,
+        metadata: dict[str, Any],
+        trace_id: str | None,
+    ) -> dict[str, float | None]:
+        """``EvaluationPipeline.evaluate_item`` 호출 — 미설정 시 lazy 생성.
+
+        실패 시 빈 dict 반환 (best-effort — 평가 실패가 단일 테스트 응답을
+        깨뜨리지 않도록 보장).
+        """
+        pipeline = self._eval_pipeline
+        if pipeline is None:
+            try:
+                pipeline = _build_pipeline(self._langfuse, self._litellm)
+                self._eval_pipeline = pipeline
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("eval_pipeline_init_failed", error=str(exc))
+                return {}
+
+        try:
+            return await pipeline.evaluate_item(
+                evaluators=evaluator_configs,
+                output=output,
+                expected=expected,
+                metadata=metadata,
+                trace_id=trace_id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("eval_pipeline_failed", error=str(exc), trace_id=trace_id)
+            return {}
 
     async def _mark_trace_error(
         self,
