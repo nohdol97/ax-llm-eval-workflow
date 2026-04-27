@@ -16,6 +16,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
+from app.api.v1 import analysis as analysis_router
 from app.api.v1 import datasets as datasets_router
 from app.api.v1 import evaluators as evaluators_router
 from app.api.v1 import experiments as experiments_router
@@ -140,6 +141,7 @@ def create_app() -> FastAPI:
     app.include_router(tests_router.router, prefix="/api/v1")
     app.include_router(experiments_router.router, prefix="/api/v1")
     app.include_router(evaluators_router.router, prefix="/api/v1")
+    app.include_router(analysis_router.router, prefix="/api/v1")
 
     return app
 

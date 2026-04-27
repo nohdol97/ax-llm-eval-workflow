@@ -186,3 +186,27 @@ def get_governance_service(
     from app.services.evaluator_governance import EvaluatorGovernanceService
 
     return EvaluatorGovernanceService(redis=redis)
+
+
+# ---------- Phase 6 — 분석 서비스 ----------
+def get_analysis_service(request: Request) -> Any:
+    """``AnalysisService`` 의존성.
+
+    ``app.state.clickhouse`` 가 ``None`` 이면 503 ``service_unavailable`` 반환.
+    그 외 직접 모드/폴백 모드 모두 동일한 ``query(sql, parameters)`` 인터페이스를
+    사용하므로 ``AnalysisService`` 가 그대로 받는다.
+    """
+    from fastapi import HTTPException, status
+
+    from app.services.analysis_service import AnalysisService
+
+    clickhouse = getattr(request.app.state, "clickhouse", None)
+    if clickhouse is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "ClickHouse 미설정 — 분석 API를 사용하려면 CLICKHOUSE_HOST 또는"
+                " USE_LANGFUSE_PUBLIC_API_FALLBACK 설정이 필요합니다."
+            ),
+        )
+    return AnalysisService(clickhouse=clickhouse)
