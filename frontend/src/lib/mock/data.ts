@@ -12,7 +12,12 @@ import type {
   Run,
   User,
 } from "./types";
-import type { TraceTree } from "../types/api";
+import type {
+  AutoEvalPolicy,
+  AutoEvalRun,
+  CostUsage,
+  TraceTree,
+} from "../types/api";
 
 export const currentUser: User = {
   id: "user_1",
@@ -934,3 +939,323 @@ export const traces: TraceTree[] = [
     timestamp: "2026-04-25T11:00:00.000Z",
   },
 ];
+
+// ─────────────────────────────────────────────────────────────────────
+// Phase 8-B: Auto-Eval Policies / Runs / Cost
+// ─────────────────────────────────────────────────────────────────────
+
+export const autoEvalPolicies: AutoEvalPolicy[] = [
+  {
+    id: "policy_qa_v3_daily",
+    name: "qa-agent-v3-daily",
+    description: "qa-agent v3 production daily evaluation",
+    project_id: "production-api",
+    trace_filter: {
+      project_id: "production-api",
+      name: "qa-agent",
+      tags: ["v3", "production"],
+      sample_size: 200,
+      sample_strategy: "random",
+    },
+    evaluators: [
+      {
+        type: "trace_builtin",
+        name: "tool_called",
+        config: { tool_name: "web_search" },
+        weight: 0.3,
+      },
+      {
+        type: "trace_builtin",
+        name: "no_error_spans",
+        config: {},
+        weight: 0.2,
+      },
+      {
+        type: "judge",
+        name: "factuality",
+        config: { judge_model: "gpt-4o" },
+        weight: 0.5,
+      },
+    ],
+    schedule: {
+      type: "cron",
+      cron_expression: "0 3 * * *",
+      timezone: "Asia/Seoul",
+    },
+    alert_thresholds: [
+      {
+        metric: "pass_rate",
+        operator: "lt",
+        value: 0.85,
+        drop_pct: 0.1,
+        window_minutes: 60,
+      },
+    ],
+    notification_targets: ["user_1"],
+    daily_cost_limit_usd: 5.0,
+    status: "active",
+    owner: "user_1",
+    created_at: "2026-04-19T10:00:00.000Z",
+    updated_at: "2026-04-25T10:00:00.000Z",
+    last_run_at: "2026-04-25T18:00:00.000Z",
+    next_run_at: "2026-04-26T18:00:00.000Z",
+  },
+  {
+    id: "policy_summary_hourly",
+    name: "summary-agent-hourly",
+    description: "summary-agent staging 1시간마다 자동 평가",
+    project_id: "production-api",
+    trace_filter: {
+      project_id: "production-api",
+      name: "summary-agent",
+      tags: ["staging"],
+      sample_size: 50,
+      sample_strategy: "first",
+    },
+    evaluators: [
+      { type: "builtin", name: "rouge", weight: 0.4 },
+      {
+        type: "judge",
+        name: "summary_quality",
+        config: { judge_model: "gpt-4o" },
+        weight: 0.6,
+      },
+    ],
+    schedule: { type: "interval", interval_seconds: 3600 },
+    alert_thresholds: [
+      { metric: "avg_score", operator: "lt", value: 0.7 },
+    ],
+    notification_targets: ["user_1"],
+    daily_cost_limit_usd: 2.0,
+    status: "active",
+    owner: "user_1",
+    created_at: "2026-04-21T09:00:00.000Z",
+    updated_at: "2026-04-22T09:00:00.000Z",
+    last_run_at: "2026-04-25T17:00:00.000Z",
+    next_run_at: "2026-04-25T18:00:00.000Z",
+  },
+  {
+    id: "policy_rag_event",
+    name: "rag-agent-on-new-traces",
+    description: "rag-agent 새 trace가 100개 누적될 때마다 평가",
+    project_id: "production-api",
+    trace_filter: {
+      project_id: "production-api",
+      name: "rag-agent",
+      tags: ["production"],
+      sample_size: 100,
+      sample_strategy: "first",
+    },
+    evaluators: [
+      {
+        type: "judge",
+        name: "factuality",
+        config: { judge_model: "gpt-4o" },
+        weight: 0.7,
+      },
+      {
+        type: "trace_builtin",
+        name: "tool_result_grounding",
+        config: {},
+        weight: 0.3,
+      },
+    ],
+    schedule: {
+      type: "event",
+      event_trigger: "new_traces",
+      event_threshold: 100,
+    },
+    alert_thresholds: [
+      { metric: "pass_rate", operator: "lt", value: 0.8 },
+    ],
+    notification_targets: ["user_1"],
+    daily_cost_limit_usd: 8.0,
+    status: "active",
+    owner: "user_1",
+    created_at: "2026-04-15T11:00:00.000Z",
+    updated_at: "2026-04-23T11:00:00.000Z",
+    last_run_at: "2026-04-25T13:30:00.000Z",
+    next_run_at: undefined,
+  },
+  {
+    id: "policy_intent_paused",
+    name: "intent-classifier-weekly",
+    description: "intent-classifier 주간 회귀 테스트 (현재 일시정지)",
+    project_id: "production-api",
+    trace_filter: {
+      project_id: "production-api",
+      name: "intent-classifier",
+      sample_size: 300,
+      sample_strategy: "stratified",
+    },
+    evaluators: [{ type: "builtin", name: "exact_match", weight: 1.0 }],
+    schedule: {
+      type: "cron",
+      cron_expression: "0 0 * * 1",
+      timezone: "Asia/Seoul",
+    },
+    alert_thresholds: [],
+    notification_targets: [],
+    daily_cost_limit_usd: 1.0,
+    status: "paused",
+    owner: "user_1",
+    created_at: "2026-04-10T08:00:00.000Z",
+    updated_at: "2026-04-22T08:00:00.000Z",
+    last_run_at: "2026-04-15T00:00:00.000Z",
+    next_run_at: undefined,
+  },
+  {
+    id: "policy_legacy_deprecated",
+    name: "legacy-pipeline-eval",
+    description: "구 버전 평가 — 신규 정책으로 대체됨",
+    project_id: "production-api",
+    trace_filter: {
+      project_id: "production-api",
+      name: "legacy-agent",
+      sample_size: 100,
+    },
+    evaluators: [{ type: "builtin", name: "contains", weight: 1.0 }],
+    schedule: {
+      type: "cron",
+      cron_expression: "0 6 * * *",
+      timezone: "Asia/Seoul",
+    },
+    alert_thresholds: [],
+    notification_targets: [],
+    daily_cost_limit_usd: 0.5,
+    status: "deprecated",
+    owner: "user_1",
+    created_at: "2026-02-01T10:00:00.000Z",
+    updated_at: "2026-03-15T10:00:00.000Z",
+    last_run_at: "2026-03-14T06:00:00.000Z",
+    next_run_at: undefined,
+  },
+];
+
+const RUN_RAND = seedRandom(42);
+
+function buildRunsFor(
+  policyId: string,
+  baseScore: number,
+  basePassRate: number,
+  baseCost: number,
+  count: number,
+  status: "running" | "completed" | "failed" | "skipped" = "completed",
+): AutoEvalRun[] {
+  const result: AutoEvalRun[] = [];
+  const now = Date.now();
+  for (let i = 0; i < count; i += 1) {
+    const startedAt = new Date(now - i * 86_400_000).toISOString();
+    const noise = (RUN_RAND() - 0.5) * 0.18;
+    const passRate = Math.max(0, Math.min(1, basePassRate + noise));
+    const avgScore = Math.max(0, Math.min(1, baseScore + noise));
+    const cost = Number((baseCost * (0.7 + RUN_RAND() * 0.6)).toFixed(4));
+    const isFail = status === "failed" && i === 0;
+    const isSkip = status === "skipped" && i === 0;
+    const isRun = status === "running" && i === 0;
+    const runStatus: AutoEvalRun["status"] = isFail
+      ? "failed"
+      : isSkip
+        ? "skipped"
+        : isRun
+          ? "running"
+          : "completed";
+    result.push({
+      id: `run_${policyId}_${i}`,
+      policy_id: policyId,
+      started_at: startedAt,
+      completed_at:
+        runStatus === "running"
+          ? undefined
+          : new Date(
+              new Date(startedAt).getTime() + 4 * 60_000,
+            ).toISOString(),
+      status: runStatus,
+      skip_reason: runStatus === "skipped" ? "trace_count_below_min" : undefined,
+      traces_evaluated: runStatus === "completed" ? 200 : runStatus === "running" ? 80 : 0,
+      traces_total: 200,
+      avg_score: runStatus === "completed" ? Number(avgScore.toFixed(3)) : undefined,
+      pass_rate: runStatus === "completed" ? Number(passRate.toFixed(3)) : undefined,
+      cost_usd: cost,
+      duration_ms: runStatus === "completed" ? 240_000 + Math.floor(RUN_RAND() * 60_000) : undefined,
+      scores_by_evaluator:
+        runStatus === "completed"
+          ? {
+              tool_called: Number((avgScore - 0.05).toFixed(3)),
+              no_error_spans: Number(Math.min(1, avgScore + 0.05).toFixed(3)),
+              factuality: Number(avgScore.toFixed(3)),
+            }
+          : {},
+      triggered_alerts: passRate < 0.85 && runStatus === "completed" ? ["pass_rate_below_threshold"] : [],
+      review_items_created:
+        runStatus === "completed"
+          ? Math.floor((1 - passRate) * 200)
+          : 0,
+      error_message:
+        runStatus === "failed" ? "Langfuse trace fetch timeout" : undefined,
+    });
+  }
+  return result;
+}
+
+export const autoEvalRuns: AutoEvalRun[] = [
+  ...buildRunsFor("policy_qa_v3_daily", 0.88, 0.9, 0.8, 14),
+  ...buildRunsFor("policy_summary_hourly", 0.78, 0.82, 0.18, 10),
+  ...buildRunsFor("policy_rag_event", 0.82, 0.86, 1.2, 9),
+  ...buildRunsFor(
+    "policy_intent_paused",
+    0.7,
+    0.72,
+    0.05,
+    4,
+    "skipped",
+  ),
+  ...buildRunsFor(
+    "policy_legacy_deprecated",
+    0.55,
+    0.58,
+    0.04,
+    3,
+    "failed",
+  ),
+];
+
+/**
+ * 정책별 일일 비용 누적치 mock 생성기.
+ *
+ * `from_date` ~ `to_date` 사이의 날짜에 대해 해당 정책의 mock run을 집계한다.
+ */
+export function buildMockCostUsage(
+  policyId: string,
+  fromDate: string,
+  toDate: string,
+): CostUsage {
+  const policy = autoEvalPolicies.find((p) => p.id === policyId);
+  const policyRuns = autoEvalRuns.filter((r) => r.policy_id === policyId);
+  const fromMs = new Date(fromDate).getTime();
+  const toMs = new Date(toDate).getTime();
+  const buckets: Record<string, { cost: number; runs: number }> = {};
+  for (const r of policyRuns) {
+    const ts = new Date(r.started_at).getTime();
+    if (ts < fromMs || ts > toMs) continue;
+    const day = r.started_at.slice(0, 10);
+    if (!buckets[day]) buckets[day] = { cost: 0, runs: 0 };
+    buckets[day].cost += r.cost_usd;
+    buckets[day].runs += 1;
+  }
+  const dailyBreakdown = Object.entries(buckets)
+    .map(([date, v]) => ({
+      date,
+      cost_usd: Number(v.cost.toFixed(4)),
+      runs_count: v.runs,
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const total = dailyBreakdown.reduce((s, d) => s + d.cost_usd, 0);
+  return {
+    policy_id: policyId,
+    date_range: `${fromDate}..${toDate}`,
+    daily_breakdown: dailyBreakdown,
+    total_cost_usd: Number(total.toFixed(4)),
+    daily_limit_usd: policy?.daily_cost_limit_usd,
+  };
+}

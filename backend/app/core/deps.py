@@ -216,6 +216,36 @@ def get_trace_fetcher(request: Request) -> Any:
     )
 
 
+# ---------- Phase 8-B — Auto-Eval ----------
+def get_auto_eval_repo(request: Request) -> Any:
+    """``AutoEvalRepo`` 의존성.
+
+    ``app.state.auto_eval_repo`` 가 lifespan 에서 초기화되어 있으면 그것을 반환.
+    없으면 (테스트 시) ``app.state.redis`` 로부터 즉석 생성한다.
+    """
+    repo = getattr(request.app.state, "auto_eval_repo", None)
+    if repo is not None:
+        return repo
+    redis = getattr(request.app.state, "redis", None)
+    if redis is None:
+        raise RuntimeError("RedisClient 또는 AutoEvalRepo 가 app.state 에 초기화되지 않았습니다.")
+    from app.services.auto_eval_repo import AutoEvalRepo
+
+    return AutoEvalRepo(redis=redis)
+
+
+def get_auto_eval_engine(request: Request) -> Any:
+    """``AutoEvalEngine`` 의존성.
+
+    ``app.state.auto_eval_engine`` 이 lifespan 에서 초기화되어 있어야 한다.
+    테스트에서는 ``app.dependency_overrides[get_auto_eval_engine]`` 로 mock 주입.
+    """
+    engine = getattr(request.app.state, "auto_eval_engine", None)
+    if engine is None:
+        raise RuntimeError("AutoEvalEngine 이 app.state 에 초기화되지 않았습니다.")
+    return engine
+
+
 # ---------- Phase 6 — 분석 서비스 ----------
 def get_analysis_service(request: Request) -> Any:
     """``AnalysisService`` 의존성.

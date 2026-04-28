@@ -17,6 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
 from app.api.v1 import analysis as analysis_router
+from app.api.v1 import auto_eval as auto_eval_router
 from app.api.v1 import datasets as datasets_router
 from app.api.v1 import evaluators as evaluators_router
 from app.api.v1 import experiments as experiments_router
@@ -83,7 +84,24 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             reason="Langfuse not configured (graceful)",
         )
 
+    # ---------- Auto-Eval Engine + Scheduler (Phase 8-B) ----------
+    # 본 단계는 best-effort — repo/engine 미구현 시 graceful degradation 으로
+    # 라우터는 동작하되 lifespan 백그라운드 task 만 비활성화된다.
+    try:
+        await _setup_auto_eval(app, settings)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("auto_eval_lifespan_setup_failed", error=str(exc))
+
     yield
+
+    # ---------- Auto-Eval Scheduler graceful shutdown ----------
+    scheduler = getattr(app.state, "auto_eval_scheduler", None)
+    if scheduler is not None:
+        try:
+            await scheduler.stop(timeout_sec=settings.LABS_SHUTDOWN_GRACE_SEC)
+            logger.info("auto_eval_scheduler_stopped")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("auto_eval_scheduler_stop_failed", error=str(exc))
 
     # ---------- 종료 ----------
     try:
@@ -144,8 +162,67 @@ def create_app() -> FastAPI:
     app.include_router(evaluators_router.router, prefix="/api/v1")
     app.include_router(analysis_router.router, prefix="/api/v1")
     app.include_router(traces_router.router, prefix="/api/v1")
+    app.include_router(auto_eval_router.router, prefix="/api/v1")
 
     return app
+
+
+async def _setup_auto_eval(app: FastAPI, settings: Settings) -> None:
+    """Auto-Eval Repo / Engine / Scheduler 를 ``app.state`` 에 부착한다.
+
+    Phase 8-B-1 의 서비스 모듈이 없으면 ``ImportError`` 가 발생하며 호출자가
+    swallow 하여 graceful 부팅이 보장된다 (라우터는 ``app.state.redis`` 만으로
+    repo 를 즉석 생성 가능).
+    """
+    from app.evaluators.pipeline import EvaluationPipeline
+    from app.services.auto_eval_engine import AutoEvalEngine
+    from app.services.auto_eval_repo import AutoEvalRepo
+    from app.services.trace_fetcher import TraceFetcher
+
+    # Repo
+    repo = AutoEvalRepo(redis=app.state.redis)
+    app.state.auto_eval_repo = repo
+
+    # TraceFetcher (lifespan 단계에서 한 번 생성)
+    trace_fetcher = TraceFetcher(
+        clickhouse=getattr(app.state, "clickhouse", None),
+        langfuse=app.state.langfuse,
+        use_fallback=settings.USE_LANGFUSE_PUBLIC_API_FALLBACK,
+    )
+    app.state.trace_fetcher = trace_fetcher
+
+    # EvaluationPipeline
+    pipeline = EvaluationPipeline(
+        langfuse=app.state.langfuse,
+        litellm_client=app.state.litellm,
+    )
+
+    # Engine
+    engine = AutoEvalEngine(
+        repo=repo,
+        trace_fetcher=trace_fetcher,
+        pipeline=pipeline,
+        langfuse=app.state.langfuse,
+        redis=app.state.redis,
+    )
+    app.state.auto_eval_engine = engine
+
+    # Scheduler (Phase 8-B-1) — lazy import + graceful skip 만약 미구현
+    try:
+        from app.services.auto_eval_scheduler import AutoEvalScheduler  # noqa: WPS433
+    except ImportError as exc:
+        logger.info(
+            "auto_eval_scheduler_not_available",
+            reason=str(exc),
+            hint="Phase 8-B-1 미구현 — repo/engine 만 활성화",
+        )
+        app.state.auto_eval_scheduler = None
+        return
+
+    scheduler = AutoEvalScheduler(repo=repo, engine=engine, redis=app.state.redis)
+    app.state.auto_eval_scheduler = scheduler
+    await scheduler.start()
+    logger.info("auto_eval_scheduler_started")
 
 
 app = create_app()

@@ -13,3 +13,4 @@ export * from "./useAnalysis";
 export * from "./useSearch";
 export * from "./useSSE";
 export * from "./useTraces";
+export * from "./useAutoEval";

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  Activity,
   BarChart3,
   Database,
   FileText,
@@ -50,6 +51,12 @@ const ITEMS: NavItem[] = [
     label: "평가 (Evaluator)",
     icon: Target,
     match: (p) => p.startsWith("/evaluators"),
+  },
+  {
+    href: "/auto-eval",
+    label: "Auto-Eval",
+    icon: Activity,
+    match: (p) => p.startsWith("/auto-eval"),
   },
   {
     href: "/settings",

@@ -21,12 +21,18 @@ NotificationType = Literal[
     "evaluator_rejected",
     "evaluator_deprecated",
     "evaluator_submission_pending",
+    "auto_eval_regression",
+    "auto_eval_cost_limit",
+    "auto_eval_run_completed",
 ]
 """알림 타입.
 
 - ``experiment_*``: 실험 완료/실패/취소 훅에서 생성
 - ``evaluator_*``: Custom Evaluator 거버넌스 이벤트
 - ``evaluator_submission_pending``: 신규 제출 — admin에게 전송
+- ``auto_eval_regression``: Auto-Eval 정책의 회귀 임계 충족 시
+- ``auto_eval_cost_limit``: Auto-Eval 정책의 일일 비용 한도 초과 시
+- ``auto_eval_run_completed``: Auto-Eval run 완료 알림 (선택)
 """
 
 

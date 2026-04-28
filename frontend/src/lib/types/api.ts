@@ -868,3 +868,120 @@ export interface TraceScoreResponse {
   value: number;
   created_at: string;
 }
+
+// ─────────────────────────────────────────────────────────────────────
+// Phase 8-B Auto-Eval — Production agent 자동 평가 정책 / 스케줄 / 알림
+// ─────────────────────────────────────────────────────────────────────
+
+export type ScheduleType = "cron" | "interval" | "event";
+
+export interface AutoEvalSchedule {
+  type: ScheduleType;
+  cron_expression?: string;
+  timezone?: string;
+  interval_seconds?: number;
+  event_trigger?: "new_traces" | "scheduled_dataset_run";
+  event_threshold?: number;
+}
+
+export interface AlertThreshold {
+  metric: "avg_score" | "pass_rate" | "evaluator_score";
+  evaluator_name?: string;
+  operator: "lt" | "lte" | "gt" | "gte";
+  value: number;
+  drop_pct?: number;
+  window_minutes?: number;
+}
+
+export type PolicyStatus = "active" | "paused" | "deprecated";
+
+export interface AutoEvalPolicy {
+  id: string;
+  name: string;
+  description?: string;
+  project_id: string;
+  trace_filter: TraceFilter;
+  expected_dataset_name?: string;
+  evaluators: EvaluatorConfig[];
+  schedule: AutoEvalSchedule;
+  alert_thresholds: AlertThreshold[];
+  notification_targets: string[];
+  daily_cost_limit_usd?: number;
+  status: PolicyStatus;
+  owner: string;
+  created_at: string;
+  updated_at: string;
+  last_run_at?: string;
+  next_run_at?: string;
+}
+
+export interface AutoEvalPolicyCreate {
+  name: string;
+  description?: string;
+  project_id: string;
+  trace_filter: TraceFilter;
+  expected_dataset_name?: string;
+  evaluators: EvaluatorConfig[];
+  schedule: AutoEvalSchedule;
+  alert_thresholds?: AlertThreshold[];
+  notification_targets?: string[];
+  daily_cost_limit_usd?: number;
+  status?: PolicyStatus;
+}
+
+export type AutoEvalPolicyUpdate = Partial<
+  Omit<AutoEvalPolicyCreate, "project_id">
+>;
+
+export interface AutoEvalPolicyListResponse {
+  items: AutoEvalPolicy[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export type AutoEvalRunStatus =
+  | "running"
+  | "completed"
+  | "failed"
+  | "skipped";
+
+export interface AutoEvalRun {
+  id: string;
+  policy_id: string;
+  started_at: string;
+  completed_at?: string;
+  status: AutoEvalRunStatus;
+  skip_reason?: string;
+  traces_evaluated: number;
+  traces_total: number;
+  avg_score?: number;
+  pass_rate?: number;
+  cost_usd: number;
+  duration_ms?: number;
+  scores_by_evaluator: Record<string, number | null>;
+  triggered_alerts: string[];
+  review_items_created: number;
+  error_message?: string;
+}
+
+export interface AutoEvalRunListResponse {
+  items: AutoEvalRun[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface CostUsageDailyEntry {
+  date: string;
+  cost_usd: number;
+  runs_count: number;
+}
+
+export interface CostUsage {
+  policy_id: string;
+  date_range: string;
+  daily_breakdown: CostUsageDailyEntry[];
+  total_cost_usd: number;
+  daily_limit_usd?: number;
+}

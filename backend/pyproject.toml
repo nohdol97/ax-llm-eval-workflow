@@ -43,6 +43,9 @@ dependencies = [
 
     # Evaluators (Phase 5)
     "jsonschema>=4.23.0",
+
+    # Auto-Eval scheduling (Phase 8-B)
+    "croniter>=2.0.0",
 ]
 
 [project.optional-dependencies]
