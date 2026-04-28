@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Input, Textarea } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Badge } from "@/components/ui/Badge";
@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 
 const DEFAULT_PROJECT_ID = "production-api";
 
-type EvalCategory = "builtin" | "judge" | "custom";
+type EvalCategory = "trace" | "builtin" | "judge" | "custom";
 
 interface UnifiedEvaluator {
   id: string;
@@ -31,15 +31,105 @@ interface WizardStep3Props {
   onChange: (patch: Partial<WizardState>) => void;
 }
 
-const TABS: Array<{ id: EvalCategory; label: string }> = [
+const LIVE_TABS: Array<{ id: EvalCategory; label: string }> = [
   { id: "builtin", label: "내장" },
   { id: "judge", label: "Judge (LLM)" },
   { id: "custom", label: "Custom" },
 ];
 
+const TRACE_TABS: Array<{ id: EvalCategory; label: string }> = [
+  { id: "trace", label: "Trace 행동" },
+  { id: "builtin", label: "출력 기반" },
+  { id: "judge", label: "Judge (LLM)" },
+  { id: "custom", label: "Custom" },
+];
+
+/** Phase 8-A: trace_eval 모드에서만 노출되는 trace evaluator 카탈로그. */
+const TRACE_EVALUATOR_CATALOG: UnifiedEvaluator[] = [
+  {
+    id: "tool_called",
+    name: "tool_called",
+    description: "지정된 tool(span)이 1회 이상 호출되었는지",
+    range: "binary",
+    category: "trace",
+  },
+  {
+    id: "tool_called_with_args",
+    name: "tool_called_with_args",
+    description: "tool 호출 시 input에 기대 인자/패턴이 포함되었는지",
+    range: "binary",
+    category: "trace",
+  },
+  {
+    id: "tool_call_sequence",
+    name: "tool_call_sequence",
+    description: "tool이 기대 순서대로 호출되었는지",
+    range: "binary",
+    category: "trace",
+  },
+  {
+    id: "tool_call_count_in_range",
+    name: "tool_call_count_in_range",
+    description: "tool 호출 횟수가 [min, max] 범위에 있는지",
+    range: "binary",
+    category: "trace",
+  },
+  {
+    id: "no_error_spans",
+    name: "no_error_spans",
+    description: "ERROR level observation이 0개인지",
+    range: "binary",
+    category: "trace",
+  },
+  {
+    id: "error_recovery_attempted",
+    name: "error_recovery_attempted",
+    description: "에러 발생 후 재시도/복구 시도가 있었는지",
+    range: "binary",
+    category: "trace",
+  },
+  {
+    id: "agent_loop_bounded",
+    name: "agent_loop_bounded",
+    description: "agent loop 횟수가 한도를 초과하지 않는지",
+    range: "binary",
+    category: "trace",
+  },
+  {
+    id: "latency_breakdown_healthy",
+    name: "latency_breakdown_healthy",
+    description: "단계별 지연이 임계값 이내인지",
+    range: "binary",
+    category: "trace",
+  },
+  {
+    id: "tool_result_grounding",
+    name: "tool_result_grounding",
+    description: "최종 답변이 tool 결과에 근거(grounded)를 두는지",
+    range: "0-1",
+    category: "trace",
+  },
+  {
+    id: "hallucination_check",
+    name: "hallucination_check",
+    description: "출력에 입력/tool 결과에 없는 사실이 포함됐는지 (LLM judge)",
+    range: "0-1",
+    category: "trace",
+  },
+];
+
 export function WizardStep3({ state, onChange }: WizardStep3Props) {
   const projectId = DEFAULT_PROJECT_ID;
-  const [tab, setTab] = useState<EvalCategory>("builtin");
+  const isTraceEval = state.mode === "trace_eval";
+  const tabs = isTraceEval ? TRACE_TABS : LIVE_TABS;
+  const [tab, setTab] = useState<EvalCategory>(
+    isTraceEval ? "trace" : "builtin"
+  );
+
+  // 모드 전환 시 첫 탭으로 복귀
+  useEffect(() => {
+    setTab(isTraceEval ? "trace" : "builtin");
+  }, [isTraceEval]);
 
   const { data: builtInResp } = useBuiltInEvaluators();
   const { data: approvedResp } = useApprovedEvaluators(projectId);
@@ -70,8 +160,11 @@ export function WizardStep3({ state, onChange }: WizardStep3Props) {
       category: "custom",
       status: "approved",
     }));
-    return [...builtIn, ...approved];
-  }, [builtInResp, approvedResp]);
+    const trace: UnifiedEvaluator[] = isTraceEval
+      ? [...TRACE_EVALUATOR_CATALOG]
+      : [];
+    return [...trace, ...builtIn, ...approved];
+  }, [builtInResp, approvedResp, isTraceEval]);
 
   const { data: modelListResp } = useModelList();
   const models = useMemo<ModelInfo[]>(
@@ -132,7 +225,7 @@ export function WizardStep3({ state, onChange }: WizardStep3Props) {
         aria-label="평가 함수 카테고리"
         className="inline-flex items-center gap-1 rounded-md border border-zinc-800 bg-zinc-900 p-1"
       >
-        {TABS.map((t) => {
+        {tabs.map((t) => {
           const count = evaluators.filter((e) => e.category === t.id).length;
           const active = tab === t.id;
           return (

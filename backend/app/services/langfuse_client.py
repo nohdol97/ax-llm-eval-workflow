@@ -254,6 +254,90 @@ class LangfuseClient:
                 detail=f"score 실패: trace_id={trace_id!r} name={name!r} ({exc})"
             ) from exc
 
+    # ---------- Trace 조회 (Phase 8-A-1, 폴백 모드용) ----------
+    @_retry_policy
+    def list_traces(
+        self,
+        project_id: str,
+        name: str | None = None,
+        tags: list[str] | None = None,
+        user_ids: list[str] | None = None,
+        session_ids: list[str] | None = None,
+        from_timestamp: Any | None = None,
+        to_timestamp: Any | None = None,
+        limit: int = 1000,
+    ) -> list[Any]:
+        """Langfuse trace 목록 조회 (폴백 모드).
+
+        SDK가 ``fetch_traces`` 또는 ``api.trace.list`` 등 다양한 메서드를 노출할 수
+        있어, 가능한 후보를 순회한다. 모두 실패하면 ``LangfuseError``.
+        """
+        sdk = self._get_sdk()
+        kwargs: dict[str, Any] = {
+            "project_id": project_id,
+            "name": name,
+            "tags": tags or [],
+            "user_id": user_ids[0] if user_ids else None,
+            "session_id": session_ids[0] if session_ids else None,
+            "from_timestamp": from_timestamp,
+            "to_timestamp": to_timestamp,
+            "limit": limit,
+        }
+        for attr_path in (("fetch_traces",), ("api", "trace", "list")):
+            obj: Any = sdk
+            try:
+                for attr in attr_path:
+                    obj = getattr(obj, attr)
+            except AttributeError:
+                continue
+            if not callable(obj):
+                continue
+            filtered = {k: v for k, v in kwargs.items() if v is not None}
+            try:
+                result = obj(**filtered)
+            except TypeError:
+                # 일부 SDK는 키워드 시그니처가 다를 수 있어 최소 인자만으로 재시도
+                try:
+                    result = obj(project_id=project_id, limit=limit)
+                except Exception as exc:  # noqa: BLE001
+                    raise LangfuseError(detail=f"list_traces 실패: {exc}") from exc
+            except Exception as exc:  # noqa: BLE001
+                raise LangfuseError(detail=f"list_traces 실패: {exc}") from exc
+            # 결과가 ``data`` 속성을 가지면 풀어준다
+            data = getattr(result, "data", None)
+            if data is not None:
+                return list(data)
+            if isinstance(result, list):
+                return result
+            return list(result) if result is not None else []
+        raise LangfuseError(detail="SDK가 list_traces / fetch_traces 메서드를 제공하지 않습니다.")
+
+    @_retry_policy
+    def get_trace(self, trace_id: str) -> Any:
+        """Langfuse trace 단건 조회 (폴백 모드).
+
+        SDK 후보: ``fetch_trace(trace_id)``, ``get_trace(trace_id)``,
+        ``api.trace.get(trace_id)``.
+        """
+        sdk = self._get_sdk()
+        for attr_path in (("fetch_trace",), ("get_trace",), ("api", "trace", "get")):
+            obj: Any = sdk
+            try:
+                for attr in attr_path:
+                    obj = getattr(obj, attr)
+            except AttributeError:
+                continue
+            if not callable(obj):
+                continue
+            try:
+                result = obj(trace_id)
+            except Exception as exc:  # noqa: BLE001
+                raise LangfuseError(
+                    detail=f"get_trace 실패: trace_id={trace_id!r} ({exc})"
+                ) from exc
+            return getattr(result, "data", None) or result
+        raise LangfuseError(detail="SDK가 get_trace / fetch_trace 메서드를 제공하지 않습니다.")
+
     # ---------- Score Config ----------
     @_retry_policy
     def register_score_config(

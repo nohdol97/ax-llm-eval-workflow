@@ -1,3 +1,7 @@
+import type { TraceFilter } from "@/lib/types/api";
+
+export type WizardMode = "live" | "trace_eval";
+
 export interface ModelConfig {
   modelId: string;
   temperature: number;
@@ -16,14 +20,21 @@ export interface JudgeConfig {
 }
 
 export interface WizardState {
-  // Step 1
+  /** Phase 8-A: 실험 모드 (live | trace_eval). */
+  mode: WizardMode;
+
+  // Step 1 (mode=live)
   name: string;
   description: string;
   promptId: string;
   promptVersions: number[];
   datasetId: string;
 
-  // Step 2
+  // Step 1 (mode=trace_eval) — Phase 8-A
+  traceFilter: TraceFilter | null;
+  expectedDatasetName: string;
+
+  // Step 2 (mode=live only)
   models: ModelConfig[];
 
   // Step 3
@@ -32,12 +43,17 @@ export interface WizardState {
   judge: JudgeConfig;
 }
 
+const DEFAULT_PROJECT_ID = "production-api";
+
 export const initialWizardState: WizardState = {
+  mode: "live",
   name: "",
   description: "",
   promptId: "",
   promptVersions: [],
   datasetId: "",
+  traceFilter: null,
+  expectedDatasetName: "",
   models: [],
   evaluators: [],
   normalizeWeights: true,
@@ -48,7 +64,34 @@ export const initialWizardState: WizardState = {
   },
 };
 
+export function defaultTraceFilter(projectId: string = DEFAULT_PROJECT_ID): TraceFilter {
+  return {
+    project_id: projectId,
+    sample_size: 200,
+    sample_strategy: "random",
+  };
+}
+
 export function isStepValid(state: WizardState, step: number): boolean {
+  if (state.mode === "trace_eval") {
+    switch (step) {
+      case 1:
+        return (
+          state.name.trim().length > 0 &&
+          state.traceFilter !== null &&
+          state.traceFilter.project_id.length > 0
+        );
+      case 2:
+        // mode=trace_eval은 Step2(모델) 건너뛰기 — 항상 valid
+        return true;
+      case 3:
+        return state.evaluators.length > 0;
+      case 4:
+        return true;
+      default:
+        return false;
+    }
+  }
   switch (step) {
     case 1:
       return (

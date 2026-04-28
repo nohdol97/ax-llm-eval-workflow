@@ -154,10 +154,22 @@ export function useCreateExperiment(): UseMutationResult<
   return useMutation({
     mutationFn: async ({ payload, idempotencyKey }) => {
       if (config.useMock) {
+        // Phase 8-A: mode 분기에 따라 mock 응답 형태가 다름
+        if (payload.mode === "trace_eval") {
+          return {
+            experiment_id: `mock-exp-${Date.now()}`,
+            status: "running" as ExperimentStatus,
+            total_runs: 1,
+            total_items: payload.trace_filter?.sample_size ?? 100,
+            runs: [],
+          };
+        }
+        const promptCount = payload.prompt_configs?.length ?? 0;
+        const modelCount = payload.model_configs?.length ?? 0;
         return {
           experiment_id: `mock-exp-${Date.now()}`,
           status: "running" as ExperimentStatus,
-          total_runs: payload.prompt_configs.length * payload.model_configs.length,
+          total_runs: promptCount * modelCount,
           total_items: 100,
           runs: [],
         };

@@ -31,6 +31,21 @@ export function WizardStep2({ state, onChange }: WizardStep2Props) {
   const providerLabels = PROVIDER_LABELS;
   const totalRuns = state.models.length * state.promptVersions.length;
 
+  // Phase 8-A: trace_eval 모드에서는 모델 선택 단계가 의미 없음 (LLM 호출 없음)
+  if (state.mode === "trace_eval") {
+    return (
+      <div className="rounded-md border border-zinc-800 bg-zinc-900/50 p-6 text-center">
+        <h3 className="text-sm font-medium text-zinc-200">
+          모델 선택 단계 건너뛰기
+        </h3>
+        <p className="mt-1 text-[12px] text-zinc-500">
+          Trace 평가 모드는 기존 trace 결과를 그대로 사용하므로 모델을 선택할 필요가
+          없습니다.
+        </p>
+      </div>
+    );
+  }
+
   const toggleModel = (modelId: string) => {
     const exists = state.models.find((m) => m.modelId === modelId);
     if (exists) {

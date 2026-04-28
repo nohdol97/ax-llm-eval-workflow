@@ -389,14 +389,27 @@ export interface ModelConfigItem {
   parameters?: ModelParameters;
 }
 
+export type ExperimentMode = "live" | "trace_eval";
+
 export interface ExperimentCreate {
   project_id: string;
   name: string;
   description?: string;
-  prompt_configs: PromptConfigItem[];
-  dataset_name: string;
+
+  /** 실험 모드 (Phase 8-A) — 기본값 live. */
+  mode?: ExperimentMode;
+
+  // mode=live (기존 — optional로 변경)
+  prompt_configs?: PromptConfigItem[];
+  dataset_name?: string;
   dataset_variable_mapping?: Record<string, string>;
-  model_configs: ModelConfigItem[];
+  model_configs?: ModelConfigItem[];
+
+  // mode=trace_eval (Phase 8-A 신규)
+  trace_filter?: TraceFilter;
+  expected_dataset_name?: string;
+
+  // 공통
   evaluators: EvaluatorConfig[];
   concurrency?: number;
   system_prompt?: string;
@@ -473,6 +486,12 @@ export interface ExperimentDetail {
   runs: RunSummary[];
   config_snapshot: Record<string, unknown>;
   evaluator_summary?: Record<string, unknown>;
+  /** Phase 8-A — 실험 모드. 백엔드 default=live. */
+  mode?: ExperimentMode;
+  /** mode=trace_eval에서 사용된 trace 필터 snapshot. */
+  trace_filter?: TraceFilter;
+  /** mode=trace_eval에서 평가 완료된 trace 수. */
+  traces_evaluated?: number;
 }
 
 export type ExperimentStreamEvent =
@@ -522,7 +541,8 @@ export type EvaluatorType =
   | "llm_judge"
   | "approved"
   | "inline_custom"
-  | "custom_code";
+  | "custom_code"
+  | "trace_builtin";
 
 export interface EvaluatorConfig {
   type: EvaluatorType;
@@ -751,4 +771,100 @@ export interface MultiRunDistributionResponse {
       statistics: DistributionStatistics;
     }
   >;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Trace (Phase 8-A) — Agent trace 평가
+// ─────────────────────────────────────────────────────────────────────
+
+export type TraceObservationType = "span" | "generation" | "event";
+export type TraceObservationLevel = "DEBUG" | "DEFAULT" | "WARNING" | "ERROR";
+export type TraceSampleStrategy = "random" | "first" | "stratified";
+
+export interface TraceObservation {
+  id: string;
+  type: TraceObservationType;
+  name: string;
+  parent_observation_id?: string | null;
+  input?: Record<string, unknown> | unknown[] | string | null;
+  output?: Record<string, unknown> | unknown[] | string | null;
+  level: TraceObservationLevel;
+  status_message?: string | null;
+  start_time: string;
+  end_time?: string | null;
+  latency_ms?: number | null;
+  model?: string | null;
+  usage?: Record<string, number> | null;
+  cost_usd?: number | null;
+  metadata: Record<string, unknown>;
+}
+
+export interface TraceTree {
+  id: string;
+  project_id: string;
+  name: string;
+  input?: Record<string, unknown> | unknown[] | string | null;
+  output?: Record<string, unknown> | unknown[] | string | null;
+  user_id?: string | null;
+  session_id?: string | null;
+  tags: string[];
+  metadata: Record<string, unknown>;
+  observations: TraceObservation[];
+  scores: Record<string, unknown>[];
+  total_cost_usd: number;
+  total_latency_ms?: number | null;
+  timestamp: string;
+}
+
+export interface TraceFilter {
+  project_id: string;
+  name?: string;
+  tags?: string[];
+  user_ids?: string[];
+  session_ids?: string[];
+  from_timestamp?: string;
+  to_timestamp?: string;
+  sample_size?: number;
+  sample_strategy?: TraceSampleStrategy;
+  metadata_match?: Record<string, unknown>;
+}
+
+export interface TraceSummary {
+  id: string;
+  name: string;
+  user_id?: string | null;
+  session_id?: string | null;
+  tags: string[];
+  total_cost_usd: number;
+  total_latency_ms?: number | null;
+  timestamp: string;
+  observation_count: number;
+}
+
+export interface TraceSearchRequest {
+  filter: TraceFilter;
+  page?: number;
+  page_size?: number;
+  include_observations?: boolean;
+}
+
+export interface TraceSearchResponse {
+  items: TraceSummary[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface TraceScoreRequest {
+  name: string;
+  value: number;
+  comment?: string;
+}
+
+export interface TraceScoreResponse {
+  trace_id: string;
+  score_id: string;
+  name: string;
+  value: number;
+  created_at: string;
 }

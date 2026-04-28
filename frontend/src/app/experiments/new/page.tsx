@@ -43,7 +43,8 @@ function generateIdempotencyKey(): string {
 
 function buildEvaluatorConfig(
   evaluatorId: string,
-  weight: number
+  weight: number,
+  mode: "live" | "trace_eval" = "live"
 ): ApiEvaluatorConfig {
   // Heuristic: built-in evaluators have short snake_case names; custom evaluators
   // come back as submission ids (e.g., uuids or `sub_*`). The Phase 7-A backend
@@ -61,8 +62,25 @@ function buildEvaluatorConfig(
   if (evaluatorId.includes("judge")) {
     return { type: "llm_judge", name: evaluatorId, weight };
   }
+  // Phase 8-A: trace_eval 모드의 trace evaluator는 type=trace_builtin
+  if (mode === "trace_eval" && TRACE_EVALUATOR_NAMES.has(evaluatorId)) {
+    return { type: "trace_builtin", name: evaluatorId, weight };
+  }
   return { type: "builtin", name: evaluatorId, weight };
 }
+
+const TRACE_EVALUATOR_NAMES = new Set<string>([
+  "tool_called",
+  "tool_called_with_args",
+  "tool_call_sequence",
+  "tool_call_count_in_range",
+  "no_error_spans",
+  "error_recovery_attempted",
+  "agent_loop_bounded",
+  "latency_breakdown_healthy",
+  "tool_result_grounding",
+  "hallucination_check",
+]);
 
 export default function NewExperimentPage() {
   const router = useRouter();
@@ -99,32 +117,49 @@ export default function NewExperimentPage() {
   const handleStart = async () => {
     setErrorMessage(null);
     try {
-      const promptConfigs: PromptConfigItem[] = state.promptVersions.map(
-        (v) => ({
-          name: state.promptId,
-          version: v,
-        })
-      );
-      const modelConfigs: ModelConfigItem[] = state.models.map((m) => ({
-        model: m.modelId,
-        parameters: {
-          temperature: m.temperature,
-          max_tokens: m.maxTokens,
-        },
-      }));
       const evaluators: ApiEvaluatorConfig[] = state.evaluators.map((e) =>
-        buildEvaluatorConfig(e.evaluatorId, e.weight)
+        buildEvaluatorConfig(e.evaluatorId, e.weight, state.mode)
       );
 
-      const payload: ExperimentCreate = {
-        project_id: projectId,
-        name: state.name,
-        description: state.description || undefined,
-        prompt_configs: promptConfigs,
-        dataset_name: state.datasetId,
-        model_configs: modelConfigs,
-        evaluators,
-      };
+      let payload: ExperimentCreate;
+      if (state.mode === "trace_eval") {
+        if (!state.traceFilter) {
+          throw new Error("Trace 필터가 설정되지 않았습니다.");
+        }
+        payload = {
+          project_id: projectId,
+          name: state.name,
+          description: state.description || undefined,
+          mode: "trace_eval",
+          trace_filter: state.traceFilter,
+          expected_dataset_name: state.expectedDatasetName || undefined,
+          evaluators,
+        };
+      } else {
+        const promptConfigs: PromptConfigItem[] = state.promptVersions.map(
+          (v) => ({
+            name: state.promptId,
+            version: v,
+          })
+        );
+        const modelConfigs: ModelConfigItem[] = state.models.map((m) => ({
+          model: m.modelId,
+          parameters: {
+            temperature: m.temperature,
+            max_tokens: m.maxTokens,
+          },
+        }));
+        payload = {
+          project_id: projectId,
+          name: state.name,
+          description: state.description || undefined,
+          mode: "live",
+          prompt_configs: promptConfigs,
+          dataset_name: state.datasetId,
+          model_configs: modelConfigs,
+          evaluators,
+        };
+      }
 
       const created = await createExperiment.mutateAsync({
         payload,

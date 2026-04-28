@@ -27,6 +27,7 @@ from app.api.v1 import projects as projects_router
 from app.api.v1 import prompts as prompts_router
 from app.api.v1 import search as search_router
 from app.api.v1 import tests as tests_router
+from app.api.v1 import traces as traces_router
 from app.core.config import Settings, get_settings
 from app.core.errors import register_exception_handlers
 from app.core.logging import get_logger
@@ -142,6 +143,7 @@ def create_app() -> FastAPI:
     app.include_router(experiments_router.router, prefix="/api/v1")
     app.include_router(evaluators_router.router, prefix="/api/v1")
     app.include_router(analysis_router.router, prefix="/api/v1")
+    app.include_router(traces_router.router, prefix="/api/v1")
 
     return app
 

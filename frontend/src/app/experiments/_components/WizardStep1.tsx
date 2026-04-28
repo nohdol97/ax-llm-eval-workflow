@@ -6,8 +6,9 @@ import { Select } from "@/components/ui/Select";
 import { Badge } from "@/components/ui/Badge";
 import { useDatasetList } from "@/lib/hooks/useDatasets";
 import { usePromptList, usePromptVersions } from "@/lib/hooks/usePrompts";
-import type { DatasetSummary } from "@/lib/types/api";
-import type { WizardState } from "./wizardState";
+import type { DatasetSummary, TraceFilter } from "@/lib/types/api";
+import { defaultTraceFilter, type WizardMode, type WizardState } from "./wizardState";
+import { TraceFilterForm } from "./TraceFilterForm";
 import { cn } from "@/lib/utils";
 
 const DEFAULT_PROJECT_ID = "production-api";
@@ -19,6 +20,19 @@ interface WizardStep1Props {
 
 export function WizardStep1({ state, onChange }: WizardStep1Props) {
   const projectId = DEFAULT_PROJECT_ID;
+
+  const handleModeChange = (mode: WizardMode) => {
+    if (mode === state.mode) return;
+    if (mode === "trace_eval" && state.traceFilter === null) {
+      onChange({ mode, traceFilter: defaultTraceFilter(projectId) });
+    } else {
+      onChange({ mode });
+    }
+  };
+
+  const handleTraceFilterChange = (filter: TraceFilter) => {
+    onChange({ traceFilter: filter });
+  };
 
   const { data: promptListResp } = usePromptList(projectId);
   const { data: datasetListResp } = useDatasetList(projectId);
@@ -62,6 +76,50 @@ export function WizardStep1({ state, onChange }: WizardStep1Props) {
 
   return (
     <div className="space-y-6">
+      <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
+        <h3 className="mb-3 text-sm font-medium text-zinc-300">실험 모드</h3>
+        <div
+          role="radiogroup"
+          aria-label="실험 모드 선택"
+          className="grid grid-cols-1 gap-3 sm:grid-cols-2"
+        >
+          <button
+            type="button"
+            role="radio"
+            aria-checked={state.mode === "live"}
+            onClick={() => handleModeChange("live")}
+            className={cn(
+              "rounded-md border p-3 text-left text-sm transition-colors",
+              state.mode === "live"
+                ? "border-indigo-500 bg-indigo-500/10 text-zinc-50"
+                : "border-zinc-800 bg-zinc-900 text-zinc-300 hover:border-zinc-700"
+            )}
+          >
+            <div className="font-medium">신규 실행 (Live)</div>
+            <div className="mt-1 text-xs text-zinc-400">
+              데이터셋 아이템마다 LLM 호출 + 평가
+            </div>
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={state.mode === "trace_eval"}
+            onClick={() => handleModeChange("trace_eval")}
+            className={cn(
+              "rounded-md border p-3 text-left text-sm transition-colors",
+              state.mode === "trace_eval"
+                ? "border-indigo-500 bg-indigo-500/10 text-zinc-50"
+                : "border-zinc-800 bg-zinc-900 text-zinc-300 hover:border-zinc-700"
+            )}
+          >
+            <div className="font-medium">기존 Trace 평가 (Trace Eval)</div>
+            <div className="mt-1 text-xs text-zinc-400">
+              Langfuse trace를 가져와 평가 (LLM 호출 없음)
+            </div>
+          </button>
+        </div>
+      </div>
+
       <div className="space-y-1.5">
         <label
           htmlFor="experiment-name"
@@ -98,6 +156,44 @@ export function WizardStep1({ state, onChange }: WizardStep1Props) {
         />
       </div>
 
+      {state.mode === "trace_eval" && (
+        <>
+          <TraceFilterForm
+            value={state.traceFilter}
+            onChange={handleTraceFilterChange}
+            projectId={projectId}
+          />
+          <div className="space-y-1.5">
+            <label
+              htmlFor="expected-dataset"
+              className="block text-sm font-medium text-zinc-200"
+            >
+              골든셋 데이터셋 (선택)
+            </label>
+            <Select
+              id="expected-dataset"
+              value={state.expectedDatasetName}
+              onChange={(e) =>
+                onChange({ expectedDatasetName: e.target.value })
+              }
+            >
+              <option value="">사용 안 함</option>
+              {datasets.map((d) => (
+                <option key={d.name} value={d.name}>
+                  {d.name}
+                </option>
+              ))}
+            </Select>
+            <p className="text-[11px] text-zinc-500">
+              지정 시 trace.input과 데이터셋 아이템을 매칭하여 expected_output을
+              evaluator에 전달합니다.
+            </p>
+          </div>
+        </>
+      )}
+
+      {state.mode === "live" && (
+        <>
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <div className="space-y-1.5">
           <label
@@ -202,6 +298,8 @@ export function WizardStep1({ state, onChange }: WizardStep1Props) {
             )}
           </div>
         </div>
+      )}
+        </>
       )}
     </div>
   );

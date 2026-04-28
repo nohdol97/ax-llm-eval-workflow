@@ -24,6 +24,7 @@ interface WizardStep4Props {
 
 export function WizardStep4({ state }: WizardStep4Props) {
   const projectId = DEFAULT_PROJECT_ID;
+  const isTraceEval = state.mode === "trace_eval";
 
   const { data: promptListResp } = usePromptList(projectId);
   const { data: datasetListResp } = useDatasetList(projectId);
@@ -90,6 +91,127 @@ export function WizardStep4({ state }: WizardStep4Props) {
   const selectedModels = state.models
     .map((mc) => models.find((m) => m.id === mc.modelId))
     .filter((m): m is NonNullable<typeof m> => !!m);
+
+  if (isTraceEval) {
+    const tf = state.traceFilter;
+    const sampleSize = tf?.sample_size;
+    return (
+      <div className="space-y-4">
+        <Card>
+          <CardHeader>
+            <CardTitle>실험 요약 (Trace Eval)</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <SummaryRow label="실험명" value={state.name || "—"} />
+              <SummaryRow
+                label="설명"
+                value={state.description || "(없음)"}
+              />
+              <SummaryRow label="모드" value={<Badge tone="accent">trace_eval</Badge>} />
+              <SummaryRow
+                label="Agent 이름"
+                value={tf?.name ?? "(전체)"}
+              />
+              <SummaryRow
+                label="Tags"
+                value={
+                  tf?.tags && tf.tags.length > 0 ? (
+                    <span className="flex flex-wrap gap-1">
+                      {tf.tags.map((t) => (
+                        <Badge key={t} tone="muted">{t}</Badge>
+                      ))}
+                    </span>
+                  ) : (
+                    "(없음)"
+                  )
+                }
+              />
+              <SummaryRow
+                label="기간"
+                value={
+                  tf?.from_timestamp
+                    ? `${new Date(tf.from_timestamp).toLocaleString("ko-KR")} ~`
+                    : "전체 기간"
+                }
+              />
+              <SummaryRow
+                label="샘플 수"
+                value={
+                  sampleSize != null ? `${formatNumber(sampleSize)}건` : "전체"
+                }
+              />
+              <SummaryRow
+                label="골든셋"
+                value={state.expectedDatasetName || "(사용 안 함)"}
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>평가 함수 ({selectedEvaluators.length}개)</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-1.5">
+              {selectedEvaluators.map((ev) => {
+                const cfg = state.evaluators.find(
+                  (e) => e.evaluatorId === ev.id
+                );
+                return (
+                  <li
+                    key={ev.id}
+                    className="flex items-center justify-between gap-2 text-sm"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Badge tone="muted">{ev.type}</Badge>
+                      <span className="text-zinc-200">{ev.name}</span>
+                    </div>
+                    <span className="font-mono text-xs text-zinc-400 tabular-nums">
+                      weight {cfg?.weight.toFixed(2) ?? "—"}
+                    </span>
+                  </li>
+                );
+              })}
+              {selectedEvaluators.length === 0 && (
+                <li className="text-xs text-zinc-500">
+                  선택된 평가 함수 없음
+                </li>
+              )}
+            </ul>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>실행 예측</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <Stat
+                label="평가 대상"
+                value={
+                  sampleSize != null ? formatNumber(sampleSize) : "전체"
+                }
+                hint="trace_filter 매칭 + 샘플링 적용"
+              />
+              <Stat
+                label="LLM 호출"
+                value="0"
+                hint="trace_eval 모드는 호출 없음"
+              />
+              <Stat
+                label="예상 비용"
+                value={formatCurrency(0, 2)}
+                hint="evaluator(LLM judge) 비용은 별도"
+              />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">

@@ -12,3 +12,4 @@ export * from "./useEvaluators";
 export * from "./useAnalysis";
 export * from "./useSearch";
 export * from "./useSSE";
+export * from "./useTraces";

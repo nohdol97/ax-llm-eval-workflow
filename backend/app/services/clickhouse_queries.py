@@ -241,6 +241,129 @@ COST_DISTRIBUTION_QUERY: str = dedent("""
 """).strip()
 
 
+# =============================================================================
+# Phase 8-A-1 — Agent Trace 조회 쿼리
+# =============================================================================
+# 본 섹션은 사내 Langfuse v3 ClickHouse 스키마를 가정한다. 컬럼명/테이블명이
+# 사내 환경과 다르다면 본 모듈만 수정하여 대응한다 (README + 본 헤더 코멘트
+# 갱신 권장). 핵심 가정:
+#   traces        : id, project_id, name, user_id, session_id, tags(Array(String)),
+#                   metadata, input, output, timestamp
+#   observations  : id, trace_id, type ('SPAN'|'GENERATION'|'EVENT'),
+#                   name, parent_observation_id, input, output, level,
+#                   status_message, start_time, end_time, model,
+#                   usage_details (또는 usage), calculated_total_cost, metadata
+#   scores        : id, trace_id, name, value, comment, timestamp
+# =============================================================================
+
+# ---------- A) Trace 검색 (필터링 + 페이지네이션) ----------
+# 결과: 메타만 반환 (observation_count 포함). observations 본문은 단건 조회에서.
+TRACE_SEARCH_QUERY: str = dedent("""
+    SELECT
+        t.id AS id,
+        t.name AS name,
+        t.user_id AS user_id,
+        t.session_id AS session_id,
+        t.tags AS tags,
+        t.metadata AS metadata,
+        t.timestamp AS timestamp,
+        sum(coalesce(o.calculated_total_cost, 0)) AS total_cost_usd,
+        if(count(o.id) > 0,
+           toFloat64(toUnixTimestamp64Milli(max(o.end_time))
+                     - toUnixTimestamp64Milli(min(o.start_time))),
+           NULL) AS total_latency_ms,
+        count(o.id) AS observation_count
+    FROM traces AS t
+    LEFT JOIN observations AS o ON o.trace_id = t.id
+    WHERE t.project_id = {project_id:String}
+      AND ({name:String} = '' OR t.name = {name:String})
+      AND ({tags_count:UInt32} = 0 OR hasAll(t.tags, {tags:Array(String)}))
+      AND ({user_ids_count:UInt32} = 0 OR t.user_id IN {user_ids:Array(String)})
+      AND ({session_ids_count:UInt32} = 0
+           OR t.session_id IN {session_ids:Array(String)})
+      AND ({has_from:UInt8} = 0 OR t.timestamp >= {from_timestamp:DateTime64(3)})
+      AND ({has_to:UInt8} = 0 OR t.timestamp <= {to_timestamp:DateTime64(3)})
+    GROUP BY t.id, t.name, t.user_id, t.session_id, t.tags, t.metadata, t.timestamp
+    ORDER BY t.timestamp DESC
+    LIMIT {limit:UInt32} OFFSET {offset:UInt32}
+""").strip()
+
+# ---------- B) Trace 검색 결과 총 개수 ----------
+TRACE_COUNT_QUERY: str = dedent("""
+    SELECT count(DISTINCT t.id) AS total
+    FROM traces AS t
+    WHERE t.project_id = {project_id:String}
+      AND ({name:String} = '' OR t.name = {name:String})
+      AND ({tags_count:UInt32} = 0 OR hasAll(t.tags, {tags:Array(String)}))
+      AND ({user_ids_count:UInt32} = 0 OR t.user_id IN {user_ids:Array(String)})
+      AND ({session_ids_count:UInt32} = 0
+           OR t.session_id IN {session_ids:Array(String)})
+      AND ({has_from:UInt8} = 0 OR t.timestamp >= {from_timestamp:DateTime64(3)})
+      AND ({has_to:UInt8} = 0 OR t.timestamp <= {to_timestamp:DateTime64(3)})
+    LIMIT 1
+""").strip()
+
+# ---------- C) 단건 trace 메타 ----------
+TRACE_DETAIL_QUERY: str = dedent("""
+    SELECT
+        t.id AS id,
+        t.name AS name,
+        t.project_id AS project_id,
+        t.input AS input,
+        t.output AS output,
+        t.user_id AS user_id,
+        t.session_id AS session_id,
+        t.tags AS tags,
+        t.metadata AS metadata,
+        t.timestamp AS timestamp
+    FROM traces AS t
+    WHERE t.id = {trace_id:String}
+      AND t.project_id = {project_id:String}
+    LIMIT 1
+""").strip()
+
+# ---------- D) 단건 trace의 모든 observations ----------
+TRACE_OBSERVATIONS_QUERY: str = dedent("""
+    SELECT
+        o.id AS id,
+        o.type AS type,
+        o.name AS name,
+        o.parent_observation_id AS parent_observation_id,
+        o.input AS input,
+        o.output AS output,
+        o.level AS level,
+        o.status_message AS status_message,
+        o.start_time AS start_time,
+        o.end_time AS end_time,
+        if(o.end_time IS NULL,
+           NULL,
+           toFloat64(toUnixTimestamp64Milli(o.end_time)
+                     - toUnixTimestamp64Milli(o.start_time))) AS latency_ms,
+        o.model AS model,
+        o.usage_details AS usage,
+        o.calculated_total_cost AS cost_usd,
+        o.metadata AS metadata
+    FROM observations AS o
+    WHERE o.trace_id = {trace_id:String}
+    ORDER BY o.start_time ASC
+    LIMIT 10000
+""").strip()
+
+# ---------- E) 단건 trace의 모든 scores ----------
+TRACE_SCORES_QUERY: str = dedent("""
+    SELECT
+        s.id AS id,
+        s.name AS name,
+        s.value AS value,
+        s.comment AS comment,
+        s.timestamp AS created_at
+    FROM scores AS s
+    WHERE s.trace_id = {trace_id:String}
+    ORDER BY s.timestamp ASC
+    LIMIT 1000
+""").strip()
+
+
 # ---------- 모든 템플릿 (테스트용) ----------
 ALL_QUERIES: tuple[tuple[str, str], ...] = (
     ("COMPARE_RUNS_QUERY", COMPARE_RUNS_QUERY),
@@ -254,4 +377,10 @@ ALL_QUERIES: tuple[tuple[str, str], ...] = (
     ("LATENCY_DISTRIBUTION_QUERY", LATENCY_DISTRIBUTION_QUERY),
     ("LATENCY_STATS_QUERY", LATENCY_STATS_QUERY),
     ("COST_DISTRIBUTION_QUERY", COST_DISTRIBUTION_QUERY),
+    # Phase 8-A-1 trace 쿼리
+    ("TRACE_SEARCH_QUERY", TRACE_SEARCH_QUERY),
+    ("TRACE_COUNT_QUERY", TRACE_COUNT_QUERY),
+    ("TRACE_DETAIL_QUERY", TRACE_DETAIL_QUERY),
+    ("TRACE_OBSERVATIONS_QUERY", TRACE_OBSERVATIONS_QUERY),
+    ("TRACE_SCORES_QUERY", TRACE_SCORES_QUERY),
 )

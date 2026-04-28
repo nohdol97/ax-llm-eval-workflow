@@ -35,7 +35,11 @@ _WRITE_VERBS = re.compile(
     r"^\s*(insert|update|delete|alter|drop|create|truncate|rename|grant|revoke)\b",
     re.IGNORECASE,
 )
-_LIMIT_PATTERN = re.compile(r"\blimit\s+\d+", re.IGNORECASE)
+# LIMIT 절 검출: 정수 리터럴 또는 ``{name:Type}`` 파라미터화 LIMIT 모두 허용
+_LIMIT_PATTERN = re.compile(
+    r"\blimit\s+(\d+|\{[a-zA-Z_]\w*:[A-Za-z0-9()]+\})",
+    re.IGNORECASE,
+)
 _DEFAULT_LIMIT = 10000
 
 

@@ -213,6 +213,7 @@ class BatchExperimentRunner:
         context_engine: ContextEngine,
         evaluation_pipeline: Any | None = None,
         governance: Any | None = None,
+        trace_fetcher: Any | None = None,
     ) -> None:
         self._langfuse = langfuse
         self._litellm = litellm
@@ -221,6 +222,8 @@ class BatchExperimentRunner:
         # Phase 5: evaluator 통합 (선택적). 미주입 시 lazy 생성.
         self._eval_pipeline = evaluation_pipeline
         self._governance = governance
+        # Phase 8-A: trace_eval 모드용 fetcher (선택적, mode=trace_eval에서만 사용)
+        self._trace_fetcher = trace_fetcher
         # 백그라운드 태스크 핸들 (graceful shutdown 용)
         self._tasks: dict[str, asyncio.Task[None]] = {}
 
@@ -239,6 +242,10 @@ class BatchExperimentRunner:
             request: 검증된 ExperimentCreate
             user_id: 실험 시작자 (JWT sub)
         """
+        # Phase 8-A: 모드 분기
+        if request.mode == "trace_eval":
+            return await self._create_trace_eval(request, user_id)
+
         # 0) Phase 5 — evaluator 가중치 사전 검증 (생성 시점에 1회)
         if request.evaluators:
             from app.evaluators.score_calculator import validate_weights
@@ -249,6 +256,10 @@ class BatchExperimentRunner:
                 raise LabsError(detail=f"evaluator 가중치 검증 실패: {exc}") from exc
 
         # 1) 데이터셋 아이템 fetch (총 아이템 수 산출에 필요)
+        # mode=live 검증을 거쳐 dataset_name은 보장됨
+        assert request.dataset_name is not None
+        assert request.prompt_configs is not None
+        assert request.model_configs is not None
         try:
             from app.services.dataset_service import (
                 list_dataset_items_via_client,
@@ -379,6 +390,410 @@ class BatchExperimentRunner:
             runs=runs,
             started_at=started_at,
         )
+
+    # ---------- 1.5) trace_eval 모드 실험 생성 (Phase 8-A) ----------
+    async def _create_trace_eval(
+        self,
+        request: ExperimentCreate,
+        user_id: str,
+    ) -> ExperimentInitResponse:
+        """trace_eval 모드 실험 생성 + 백그라운드 실행.
+
+        ``trace_filter`` 로 Langfuse trace 검색 → 매칭된 trace 수를 ``total_items`` 로
+        기록하고 즉시 응답한다. 실제 trace fetch + evaluator 적용은 ``_run_trace_eval``
+        에서 백그라운드로 진행된다.
+
+        반환은 ``total_runs=1`` (trace_eval은 단일 가상 run으로 표현).
+        """
+        if self._trace_fetcher is None:
+            raise LabsError(
+                detail="trace_eval 모드는 TraceFetcher 의존성이 필요합니다 (Phase 8-A-1)."
+            )
+        if request.trace_filter is None:  # 안전망 (validator로 보장됨)
+            raise LabsError(detail="trace_eval 모드에는 trace_filter가 필요합니다.")
+
+        # 0) evaluator 가중치 사전 검증
+        from app.evaluators.score_calculator import validate_weights
+
+        try:
+            validate_weights(request.evaluators)
+        except ValueError as exc:
+            raise LabsError(detail=f"evaluator 가중치 검증 실패: {exc}") from exc
+
+        # 1) trace 사전 조회 — 매칭 수 + 기본 응답값 산출
+        try:
+            _summaries, total_matched = await self._trace_fetcher.search(request.trace_filter)
+        except Exception as exc:  # noqa: BLE001
+            raise LabsError(detail=f"trace 검색 실패: {exc}") from exc
+
+        if total_matched == 0:
+            raise LabsError(detail="trace_filter에 매칭되는 trace가 없습니다.")
+
+        # sample_size가 있으면 평가 대상 수는 min(total, sample_size)
+        evaluated_target = total_matched
+        if request.trace_filter.sample_size is not None:
+            evaluated_target = min(total_matched, request.trace_filter.sample_size)
+
+        # 2) 워크스페이스 동시 한도 검사
+        active_count = await self._redis.incr(_concurrency_counter_key())
+        if active_count > WORKSPACE_MAX_CONCURRENT_EXPERIMENTS:
+            await self._redis.incr(_concurrency_counter_key(), -1)
+            initial_status: ExperimentStatus = "queued"
+        else:
+            initial_status = "running"
+
+        # 3) Redis 초기 상태 저장 (mode=trace_eval 명시)
+        experiment_id = str(uuid.uuid4())
+        started_at = _now()
+        config_snapshot = request.model_dump(mode="json")
+
+        underlying = _underlying(self._redis)
+        exp_full_key = _full_key(self._redis, _exp_key(experiment_id))
+
+        await underlying.hset(
+            exp_full_key,
+            mapping={
+                "name": request.name,
+                "description": request.description or "",
+                "status": initial_status,
+                "config": json.dumps(config_snapshot, ensure_ascii=False),
+                "mode": "trace_eval",
+                "total_items": evaluated_target,
+                "completed_items": 0,
+                "failed_items": 0,
+                "total_cost_usd": 0.0,
+                "created_at": started_at.isoformat().replace("+00:00", "Z"),
+                "updated_at": started_at.isoformat().replace("+00:00", "Z"),
+                "started_by": user_id,
+                "owner_user_id": user_id,
+                "project_id": request.project_id,
+                "total_runs": 1,
+                "traces_evaluated": 0,
+            },
+        )
+        await underlying.expire(exp_full_key, EXPERIMENT_TTL_ACTIVE_SEC)
+
+        # 프로젝트 인덱스 등록
+        proj_full_key = _full_key(self._redis, _project_experiments_key(request.project_id))
+        score = started_at.timestamp()
+        await underlying.zadd(proj_full_key, {experiment_id: score})
+
+        # 4) 백그라운드 실행 시작
+        if initial_status == "running":
+            task = asyncio.create_task(
+                self._run_trace_eval(experiment_id),
+                name=f"trace-eval-{experiment_id}",
+            )
+            self._tasks[experiment_id] = task
+            task.add_done_callback(lambda t: self._tasks.pop(experiment_id, None))
+
+        logger.info(
+            "experiment_trace_eval_created",
+            extra={
+                "experiment_id": experiment_id,
+                "user_id": user_id,
+                "project_id": request.project_id,
+                "trace_match_total": total_matched,
+                "evaluated_target": evaluated_target,
+                "status": initial_status,
+            },
+        )
+
+        return ExperimentInitResponse(
+            experiment_id=experiment_id,
+            status=initial_status,
+            total_runs=1,
+            total_items=evaluated_target,
+            runs=[],
+            started_at=started_at,
+        )
+
+    async def _run_trace_eval(self, experiment_id: str) -> None:
+        """trace_eval 백그라운드 실행 — trace fetch → evaluator → 집계."""
+        underlying = _underlying(self._redis)
+        exp_full_key = _full_key(self._redis, _exp_key(experiment_id))
+
+        try:
+            raw = await underlying.hgetall(exp_full_key)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "trace_eval_load_failed",
+                extra={"experiment_id": experiment_id, "error": str(exc)},
+            )
+            return
+        if not raw:
+            logger.warning(
+                "trace_eval_not_found_at_run",
+                extra={"experiment_id": experiment_id},
+            )
+            return
+
+        config_raw = _hget_str(raw, "config")
+        owner = _hget_str(raw, "owner_user_id") or _hget_str(raw, "started_by") or ""
+        if not config_raw:
+            await self._fail_experiment(experiment_id, owner, "config snapshot 없음")
+            return
+
+        try:
+            config = json.loads(config_raw)
+            request = ExperimentCreate.model_validate(config)
+        except Exception as exc:  # noqa: BLE001
+            await self._fail_experiment(experiment_id, owner, f"config 파싱 실패: {exc}")
+            return
+
+        if request.trace_filter is None or self._trace_fetcher is None:
+            await self._fail_experiment(experiment_id, owner, "trace_filter/fetcher 없음")
+            return
+
+        started_monotonic = time.monotonic()
+        try:
+            # 1) trace summaries fetch (sample_size 적용 후)
+            summaries, _ = await self._trace_fetcher.search(request.trace_filter)
+
+            if not summaries:
+                # 평가할 trace 없음 → 빈 결과로 정상 완료
+                await self._finalize_trace_eval_state(experiment_id, traces_evaluated=0)
+                duration = time.monotonic() - started_monotonic
+                await self._complete_experiment(
+                    experiment_id=experiment_id,
+                    owner=owner,
+                    duration_sec=duration,
+                    total_cost=0.0,
+                    total_items=0,
+                    completed_items=0,
+                    failed_items=0,
+                )
+                return
+
+            # 2) 각 trace 단건 fetch (병렬, semaphore)
+            sem = asyncio.Semaphore(max(1, request.concurrency))
+
+            async def _fetch_one(s: Any) -> Any:
+                async with sem:
+                    try:
+                        return await self._trace_fetcher.get(s.id, request.project_id)
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning(
+                            "trace_fetch_failed",
+                            extra={
+                                "experiment_id": experiment_id,
+                                "trace_id": getattr(s, "id", "?"),
+                                "error": str(exc),
+                            },
+                        )
+                        return None
+
+            fetched = await asyncio.gather(*[_fetch_one(s) for s in summaries])
+            traces: list[Any] = [t for t in fetched if t is not None]
+
+            # 3) expected dataset 매칭 (선택)
+            expecteds = await self._match_expected(traces, request.expected_dataset_name)
+
+            # 4) 각 trace에 대해 pipeline.evaluate_trace 병렬 (semaphore 동일 적용)
+            pipeline = self._eval_pipeline
+            if pipeline is None:
+                from app.evaluators.pipeline import EvaluationPipeline
+
+                pipeline = EvaluationPipeline(
+                    langfuse=self._langfuse,
+                    litellm_client=self._litellm,
+                )
+                self._eval_pipeline = pipeline
+
+            evaluate_trace = getattr(pipeline, "evaluate_trace", None)
+            if evaluate_trace is None:
+                await self._fail_experiment(
+                    experiment_id,
+                    owner,
+                    "EvaluationPipeline.evaluate_trace 미구현 (Phase 8-A-2 필요)",
+                )
+                return
+
+            async def _eval_one(trace: Any, expected: dict[str, Any] | None) -> dict[str, Any]:
+                async with sem:
+                    try:
+                        return await evaluate_trace(request.evaluators, trace, expected)
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning(
+                            "trace_eval_failed",
+                            extra={
+                                "experiment_id": experiment_id,
+                                "trace_id": getattr(trace, "id", "?"),
+                                "error": str(exc),
+                            },
+                        )
+                        return {}
+
+            results = await asyncio.gather(
+                *[_eval_one(t, expecteds.get(getattr(t, "id", ""))) for t in traces]
+            )
+
+            # 5) 집계 + 진행률 갱신
+            await self._aggregate_trace_eval(experiment_id, traces, results)
+
+            # 6) 완료 처리
+            duration = time.monotonic() - started_monotonic
+            failed_count = len(summaries) - len(traces)
+            total_cost = sum(getattr(t, "total_cost_usd", 0.0) or 0.0 for t in traces)
+            await self._complete_experiment(
+                experiment_id=experiment_id,
+                owner=owner,
+                duration_sec=duration,
+                total_cost=float(total_cost),
+                total_items=len(summaries),
+                completed_items=len(traces),
+                failed_items=failed_count,
+            )
+
+        except Exception as exc:  # noqa: BLE001
+            logger.exception(
+                "trace_eval_run_failed",
+                extra={"experiment_id": experiment_id},
+            )
+            await self._fail_experiment(experiment_id, owner, str(exc))
+        finally:
+            try:
+                count = await self._redis.incr(_concurrency_counter_key(), -1)
+                if count < 0:
+                    await self._redis.set(_concurrency_counter_key(), 0)
+            except Exception:  # noqa: BLE001, S110  # pragma: no cover
+                pass
+            try:
+                self._langfuse.flush()
+            except Exception:  # noqa: BLE001, S110  # pragma: no cover
+                pass
+
+    async def _match_expected(
+        self,
+        traces: list[Any],
+        dataset_name: str | None,
+    ) -> dict[str, dict[str, Any]]:
+        """trace.input과 골든셋 dataset.input을 매칭 — ``{trace_id: expected dict}``.
+
+        매칭 전략 (간단형):
+        1. dataset_name이 ``None`` → 빈 dict
+        2. dataset 아이템들의 ``metadata.dataset_item_id`` 또는 ``input`` 동등 비교
+
+        본 구현은 정확 일치(JSON 정렬된 문자열) 기반의 단순 매칭이다. v2에서 fuzzy
+        매칭/임베딩 기반 매칭으로 확장할 수 있다.
+        """
+        if not dataset_name or not traces:
+            return {}
+
+        try:
+            from app.services.dataset_service import (
+                list_dataset_items_via_client,
+            )
+
+            items = list_dataset_items_via_client(self._langfuse, dataset_name)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "expected_dataset_fetch_failed",
+                extra={"dataset_name": dataset_name, "error": str(exc)},
+            )
+            return {}
+
+        # input 시그니처(JSON 정렬) → expected 사전 구축
+        input_to_expected: dict[str, dict[str, Any]] = {}
+        for it in items:
+            inp = it.get("input")
+            try:
+                key = json.dumps(inp, ensure_ascii=False, sort_keys=True, default=str)
+            except (TypeError, ValueError):
+                key = str(inp)
+            input_to_expected[key] = {
+                "expected_output": it.get("expected_output"),
+                "metadata": it.get("metadata") or {},
+            }
+
+        # trace.input 시그니처로 매칭
+        out: dict[str, dict[str, Any]] = {}
+        for trace in traces:
+            try:
+                key = json.dumps(trace.input, ensure_ascii=False, sort_keys=True, default=str)
+            except (TypeError, ValueError):
+                key = str(trace.input)
+            match = input_to_expected.get(key)
+            if match is not None:
+                out[getattr(trace, "id", "")] = match
+        return out
+
+    async def _aggregate_trace_eval(
+        self,
+        experiment_id: str,
+        traces: list[Any],
+        results: list[dict[str, Any]],
+    ) -> None:
+        """trace_eval 결과 집계 — Redis 진행률 + progress 이벤트 발행."""
+        underlying = _underlying(self._redis)
+        exp_full_key = _full_key(self._redis, _exp_key(experiment_id))
+
+        # weighted_score 합계 + scored_count
+        weighted_sum = 0.0
+        scored_count = 0
+        total_cost = 0.0
+        for trace, scores in zip(traces, results, strict=True):
+            ws = scores.get("weighted_score") if isinstance(scores, dict) else None
+            if isinstance(ws, (int, float)):
+                weighted_sum += float(ws)
+                scored_count += 1
+            cost = getattr(trace, "total_cost_usd", 0.0) or 0.0
+            try:
+                total_cost += float(cost)
+            except (TypeError, ValueError):
+                pass
+
+        try:
+            pipe = underlying.pipeline()
+            pipe.hset(
+                exp_full_key,
+                mapping={
+                    "completed_items": len(traces),
+                    "traces_evaluated": len(traces),
+                    "total_cost_usd": float(total_cost),
+                    "total_score_sum": weighted_sum,
+                    "scored_count": scored_count,
+                },
+            )
+            await pipe.execute()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "trace_eval_aggregate_failed",
+                extra={"experiment_id": experiment_id, "error": str(exc)},
+            )
+
+        # progress 이벤트 발행 (단일 누적 이벤트)
+        await self._publish_event(
+            experiment_id,
+            "progress",
+            {
+                "run_name": "trace_eval",
+                "completed": len(traces),
+                "failed": 0,
+                "total": len(traces),
+                "current_item": None,
+            },
+        )
+
+    async def _finalize_trace_eval_state(
+        self,
+        experiment_id: str,
+        *,
+        traces_evaluated: int,
+    ) -> None:
+        """trace_eval 종료 시 Redis 카운터 마무리."""
+        underlying = _underlying(self._redis)
+        exp_full_key = _full_key(self._redis, _exp_key(experiment_id))
+        try:
+            await underlying.hset(
+                exp_full_key,
+                mapping={
+                    "traces_evaluated": traces_evaluated,
+                    "completed_items": traces_evaluated,
+                },
+            )
+        except Exception:  # noqa: BLE001, S110  # pragma: no cover
+            pass
 
     # ---------- 2) 실험 본체 실행 ----------
     async def run_experiment(

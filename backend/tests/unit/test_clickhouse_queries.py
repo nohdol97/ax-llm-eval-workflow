@@ -23,7 +23,9 @@ from app.services.clickhouse_queries import ALL_QUERIES
 # ---------- 위험 패턴 (MockClickHouse + 실코드 둘 다 차단) ----------
 _FSTRING_VAR = re.compile(r"\{[a-zA-Z_]\w*\}")  # f-string {var} (no `:type`)
 _PERCENT_S = re.compile(r"%\(.*?\)s")  # %(name)s 보간
+# LIMIT 검증용: 정수 리터럴 또는 파라미터화된 ``{limit:UInt32}`` 형태 모두 허용
 _LIMIT_RE = re.compile(r"\bLIMIT\s+\d+", re.IGNORECASE)
+_LIMIT_OR_PARAM_RE = re.compile(r"\bLIMIT\s+(\d+|\{[a-zA-Z_]\w*:[A-Za-z0-9()]+\})", re.IGNORECASE)
 _PARAM_RE = re.compile(r"\{[a-zA-Z_]\w*:[A-Za-z0-9()]+\}")
 _WRITE_RE = re.compile(
     r"\b(INSERT|UPDATE|DELETE|ALTER|DROP|CREATE|TRUNCATE|RENAME|GRANT|REVOKE)\b",
@@ -50,8 +52,8 @@ class TestQuerySafety:
 
     @pytest.mark.parametrize("name,sql", ALL_QUERIES, ids=[n for n, _ in ALL_QUERIES])
     def test_has_limit_clause(self, name: str, sql: str) -> None:
-        """모든 쿼리에 LIMIT 절이 명시되어 있다."""
-        assert _LIMIT_RE.search(sql) is not None, f"{name}: LIMIT clause missing"
+        """모든 쿼리에 LIMIT 절(정수 또는 파라미터)이 명시되어 있다."""
+        assert _LIMIT_OR_PARAM_RE.search(sql) is not None, f"{name}: LIMIT clause missing"
 
     @pytest.mark.parametrize("name,sql", ALL_QUERIES, ids=[n for n, _ in ALL_QUERIES])
     def test_has_parameterized_syntax(self, name: str, sql: str) -> None:
@@ -85,10 +87,10 @@ class TestValidatorIntegration:
 
     @pytest.mark.parametrize("name,sql", ALL_QUERIES, ids=[n for n, _ in ALL_QUERIES])
     def test_ensure_limit_idempotent(self, name: str, sql: str) -> None:
-        """이미 LIMIT가 있어도 자동 LIMIT가 추가되지 않는다."""
+        """이미 LIMIT가 있으면 자동 LIMIT가 추가되지 않는다 (정수/파라미터 모두)."""
         result = _ensure_limit(sql)
-        # LIMIT가 1번만 등장
-        assert len(_LIMIT_RE.findall(result)) == 1, f"{name}: LIMIT가 중복 추가됨"
+        # LIMIT가 1번만 등장 (정수 또는 파라미터 형태)
+        assert len(_LIMIT_OR_PARAM_RE.findall(result)) == 1, f"{name}: LIMIT가 중복 추가됨"
 
 
 @pytest.mark.unit
@@ -134,3 +136,88 @@ class TestSpecificQueryShape:
         assert "model_cost" in COST_DISTRIBUTION_QUERY
         assert "eval_cost" in COST_DISTRIBUTION_QUERY
         assert "total_cost" in COST_DISTRIBUTION_QUERY
+
+
+@pytest.mark.unit
+class TestTraceQueries:
+    """Phase 8-A-1 trace 쿼리 정적 검증."""
+
+    def test_trace_search_uses_required_params(self) -> None:
+        from app.services.clickhouse_queries import TRACE_SEARCH_QUERY
+
+        for param in (
+            "{project_id:String}",
+            "{name:String}",
+            "{tags:Array(String)}",
+            "{tags_count:UInt32}",
+            "{user_ids:Array(String)}",
+            "{user_ids_count:UInt32}",
+            "{session_ids:Array(String)}",
+            "{session_ids_count:UInt32}",
+            "{has_from:UInt8}",
+            "{from_timestamp:DateTime64(3)}",
+            "{has_to:UInt8}",
+            "{to_timestamp:DateTime64(3)}",
+            "{limit:UInt32}",
+            "{offset:UInt32}",
+        ):
+            assert param in TRACE_SEARCH_QUERY, f"missing param: {param}"
+
+    def test_trace_search_returns_required_columns(self) -> None:
+        from app.services.clickhouse_queries import TRACE_SEARCH_QUERY
+
+        for col in (
+            "AS id",
+            "AS name",
+            "AS user_id",
+            "AS session_id",
+            "AS tags",
+            "AS metadata",
+            "AS timestamp",
+            "AS total_cost_usd",
+            "AS total_latency_ms",
+            "AS observation_count",
+        ):
+            assert col in TRACE_SEARCH_QUERY, f"missing column alias: {col}"
+
+    def test_trace_count_only_returns_total(self) -> None:
+        from app.services.clickhouse_queries import TRACE_COUNT_QUERY
+
+        assert "count(DISTINCT t.id) AS total" in TRACE_COUNT_QUERY
+        # COUNT 쿼리도 필터 파라미터 동일하게 사용해야 한다
+        assert "{project_id:String}" in TRACE_COUNT_QUERY
+        assert "{tags:Array(String)}" in TRACE_COUNT_QUERY
+
+    def test_trace_detail_filters_by_id_and_project(self) -> None:
+        from app.services.clickhouse_queries import TRACE_DETAIL_QUERY
+
+        assert "{trace_id:String}" in TRACE_DETAIL_QUERY
+        assert "{project_id:String}" in TRACE_DETAIL_QUERY
+        assert "AS input" in TRACE_DETAIL_QUERY
+        assert "AS output" in TRACE_DETAIL_QUERY
+        assert "AS timestamp" in TRACE_DETAIL_QUERY
+
+    def test_trace_observations_orders_by_start_time(self) -> None:
+        from app.services.clickhouse_queries import TRACE_OBSERVATIONS_QUERY
+
+        assert "{trace_id:String}" in TRACE_OBSERVATIONS_QUERY
+        assert "ORDER BY o.start_time ASC" in TRACE_OBSERVATIONS_QUERY
+        # 핵심 컬럼 alias 검증
+        for col in (
+            "AS type",
+            "AS parent_observation_id",
+            "AS level",
+            "AS status_message",
+            "AS latency_ms",
+            "AS model",
+            "AS usage",
+            "AS cost_usd",
+        ):
+            assert col in TRACE_OBSERVATIONS_QUERY, f"missing column alias: {col}"
+
+    def test_trace_scores_query(self) -> None:
+        from app.services.clickhouse_queries import TRACE_SCORES_QUERY
+
+        assert "{trace_id:String}" in TRACE_SCORES_QUERY
+        assert "AS created_at" in TRACE_SCORES_QUERY
+        assert "AS value" in TRACE_SCORES_QUERY

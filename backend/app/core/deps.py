@@ -132,6 +132,7 @@ def get_experiment_query(
 
 # ---------- 배치 실험 실행기 (Phase 4) ----------
 def get_batch_runner(
+    request: Request,
     langfuse: LangfuseClient = Depends(get_langfuse_client),
     litellm: LiteLLMClient = Depends(get_litellm_client),
     redis: RedisClient = Depends(get_redis_client),
@@ -141,12 +142,15 @@ def get_batch_runner(
 
     실 환경: ``app.state``의 클라이언트 + ``ContextEngine`` 싱글턴 합성.
     테스트: ``app.dependency_overrides[get_batch_runner]``로 mock 주입.
+
+    Phase 8-A: ``app.state.trace_fetcher`` 가 있으면 주입 (mode=trace_eval에서 사용).
     """
     from app.services.batch_runner import BatchExperimentRunner
     from app.services.evaluator_governance import EvaluatorGovernanceService
 
     pipeline = _build_evaluation_pipeline(langfuse, litellm)
     governance = EvaluatorGovernanceService(redis=redis)
+    trace_fetcher = getattr(request.app.state, "trace_fetcher", None)
     return BatchExperimentRunner(
         langfuse=langfuse,
         litellm=litellm,
@@ -154,6 +158,7 @@ def get_batch_runner(
         context_engine=context_engine,
         evaluation_pipeline=pipeline,
         governance=governance,
+        trace_fetcher=trace_fetcher,
     )
 
 
@@ -186,6 +191,29 @@ def get_governance_service(
     from app.services.evaluator_governance import EvaluatorGovernanceService
 
     return EvaluatorGovernanceService(redis=redis)
+
+
+# ---------- Phase 8-A-1 — Trace Fetcher ----------
+def get_trace_fetcher(request: Request) -> Any:
+    """``TraceFetcher`` 의존성.
+
+    - ``app.state.clickhouse`` 가 ``None`` 이면 자동으로 폴백 모드로 진입한다
+      (``LangfuseClient`` SDK 사용).
+    - ``Settings.USE_LANGFUSE_PUBLIC_API_FALLBACK`` 이 True면 ClickHouse가 있어도
+      폴백 모드 강제.
+    """
+    from app.services.trace_fetcher import TraceFetcher
+
+    settings = get_settings()
+    langfuse = getattr(request.app.state, "langfuse", None)
+    if langfuse is None:
+        raise RuntimeError("LangfuseClient가 app.state에 초기화되지 않았습니다.")
+    clickhouse = getattr(request.app.state, "clickhouse", None)
+    return TraceFetcher(
+        clickhouse=clickhouse,
+        langfuse=langfuse,
+        use_fallback=settings.USE_LANGFUSE_PUBLIC_API_FALLBACK,
+    )
 
 
 # ---------- Phase 6 — 분석 서비스 ----------
