@@ -24,9 +24,7 @@ from collections.abc import Iterable
 from typing import Any
 
 # ``{{var}}`` 또는 ``{{ var }}`` (앞뒤 공백 허용) — ``services/prompt_utils.py``와 동일한 패턴
-VARIABLE_PATTERN: re.Pattern[str] = re.compile(
-    r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}"
-)
+VARIABLE_PATTERN: re.Pattern[str] = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
 
 
 def _coerce_value(value: Any) -> str:
@@ -156,9 +154,7 @@ class ContextEngine:
         if isinstance(prompt, str):
             result_text = _replace_in_text(prompt, coerced, missing=missing)
             if strict and missing:
-                raise ValueError(
-                    f"필수 변수 누락 (strict=True): {sorted(set(missing))}"
-                )
+                raise ValueError(f"필수 변수 누락 (strict=True): {sorted(set(missing))}")
             return result_text
 
         if isinstance(prompt, list):
@@ -171,24 +167,18 @@ class ContextEngine:
                 new_msg: dict[str, Any] = dict(message)  # shallow copy
                 content = new_msg.get("content")
                 if isinstance(content, str):
-                    new_msg["content"] = _replace_in_text(
-                        content, coerced, missing=missing
-                    )
+                    new_msg["content"] = _replace_in_text(content, coerced, missing=missing)
                 elif isinstance(content, list):
                     new_segments: list[Any] = []
                     for seg in content:
                         if isinstance(seg, str):
-                            new_segments.append(
-                                _replace_in_text(seg, coerced, missing=missing)
-                            )
+                            new_segments.append(_replace_in_text(seg, coerced, missing=missing))
                         elif isinstance(seg, dict):
                             new_seg = dict(seg)
                             text = new_seg.get("text")
                             inner = new_seg.get("content")
                             if isinstance(text, str):
-                                new_seg["text"] = _replace_in_text(
-                                    text, coerced, missing=missing
-                                )
+                                new_seg["text"] = _replace_in_text(text, coerced, missing=missing)
                             elif isinstance(inner, str):
                                 new_seg["content"] = _replace_in_text(
                                     inner, coerced, missing=missing
@@ -200,9 +190,7 @@ class ContextEngine:
                 new_messages.append(new_msg)
 
             if strict and missing:
-                raise ValueError(
-                    f"필수 변수 누락 (strict=True): {sorted(set(missing))}"
-                )
+                raise ValueError(f"필수 변수 누락 (strict=True): {sorted(set(missing))}")
             return new_messages
 
         # 알 수 없는 형식 — 변환 없이 반환 (방어적)
@@ -235,9 +223,7 @@ class ContextEngine:
                     # 양쪽 시그니처 모두 실패 — 엔진 자체 로직으로 fallback
                     pass
         body = (
-            getattr(prompt_obj, "prompt", None)
-            or getattr(prompt_obj, "body", None)
-            or prompt_obj
+            getattr(prompt_obj, "prompt", None) or getattr(prompt_obj, "body", None) or prompt_obj
         )
         if not isinstance(body, (str, list)):
             body = str(body)
@@ -268,9 +254,7 @@ class ContextEngine:
             변수 치환된 프롬프트.
         """
         if not isinstance(item_input, dict):
-            raise TypeError(
-                f"item_input은 dict이어야 합니다 (got {type(item_input).__name__})"
-            )
+            raise TypeError(f"item_input은 dict이어야 합니다 (got {type(item_input).__name__})")
         prompt_vars = self.parse_variables(prompt)
 
         resolved: dict[str, Any] = {}

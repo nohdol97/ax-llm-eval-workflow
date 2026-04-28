@@ -82,9 +82,7 @@ class TestNotificationServiceCreate:
         assert notif.read is False
         assert notif.read_at is None
 
-    async def test_idempotent_with_same_resource(
-        self, redis_client: MockRedisClient
-    ) -> None:
+    async def test_idempotent_with_same_resource(self, redis_client: MockRedisClient) -> None:
         """동일 resource_id로 두 번 호출해도 1건만 생성."""
         a = await create_notification(
             user_id="user-1",
@@ -108,9 +106,7 @@ class TestNotificationServiceCreate:
         # 두 번째 호출이 새 레코드를 만들지 않았으므로 title은 그대로 A
         assert b.title == "A"
 
-    async def test_ttl_30_days_applied(
-        self, redis_client: MockRedisClient
-    ) -> None:
+    async def test_ttl_30_days_applied(self, redis_client: MockRedisClient) -> None:
         """알림 Hash와 인덱스 모두 TTL 30일 적용."""
         notif = await create_notification(
             user_id="user-1",
@@ -128,9 +124,7 @@ class TestNotificationServiceCreate:
         assert 0 < hash_ttl <= NOTIFICATION_TTL_SECONDS
         assert 0 < index_ttl <= NOTIFICATION_TTL_SECONDS
 
-    async def test_index_zset_records_creation(
-        self, redis_client: MockRedisClient
-    ) -> None:
+    async def test_index_zset_records_creation(self, redis_client: MockRedisClient) -> None:
         """인덱스 Sorted Set에 등록되어 ZCARD = 1."""
         await create_notification(
             user_id="user-1",
@@ -149,19 +143,13 @@ class TestNotificationServiceCreate:
 class TestNotificationServiceList:
     """``list_notifications``."""
 
-    async def test_returns_empty_for_new_user(
-        self, redis_client: MockRedisClient
-    ) -> None:
-        result = await list_notifications(
-            user_id="brand-new", redis=redis_client
-        )
+    async def test_returns_empty_for_new_user(self, redis_client: MockRedisClient) -> None:
+        result = await list_notifications(user_id="brand-new", redis=redis_client)
         assert result.total == 0
         assert result.unread_count == 0
         assert result.items == []
 
-    async def test_orders_newest_first(
-        self, redis_client: MockRedisClient
-    ) -> None:
+    async def test_orders_newest_first(self, redis_client: MockRedisClient) -> None:
         """가장 최근 생성된 알림이 첫 번째."""
         t0 = datetime(2026, 1, 1, tzinfo=UTC)
         await create_notification(
@@ -189,9 +177,7 @@ class TestNotificationServiceList:
         assert result.items[0].title == "newest"
         assert result.items[1].title == "oldest"
 
-    async def test_unread_only_filter(
-        self, redis_client: MockRedisClient
-    ) -> None:
+    async def test_unread_only_filter(self, redis_client: MockRedisClient) -> None:
         """``unread_only=True``면 읽지 않은 알림만."""
         n1 = await create_notification(
             user_id="u1",
@@ -212,9 +198,7 @@ class TestNotificationServiceList:
             resource_id="r2",
         )
         await mark_read(user_id="u1", notification_id=n1.id, redis=redis_client)
-        result = await list_notifications(
-            user_id="u1", redis=redis_client, unread_only=True
-        )
+        result = await list_notifications(user_id="u1", redis=redis_client, unread_only=True)
         assert result.total == 1
         assert result.items[0].title == "unread"
         # unread_count는 필터 무관
@@ -233,12 +217,8 @@ class TestNotificationServiceList:
                 resource_id=f"r{i}",
                 now=datetime(2026, 1, 1, tzinfo=UTC) + timedelta(hours=i),
             )
-        page1 = await list_notifications(
-            user_id="u1", redis=redis_client, page=1, page_size=2
-        )
-        page2 = await list_notifications(
-            user_id="u1", redis=redis_client, page=2, page_size=2
-        )
+        page1 = await list_notifications(user_id="u1", redis=redis_client, page=1, page_size=2)
+        page2 = await list_notifications(user_id="u1", redis=redis_client, page=2, page_size=2)
         assert len(page1.items) == 2
         assert len(page2.items) == 2
         # 두 페이지에 동일 알림이 등장하지 않아야 함
@@ -246,9 +226,7 @@ class TestNotificationServiceList:
         ids_p2 = {n.id for n in page2.items}
         assert ids_p1.isdisjoint(ids_p2)
 
-    async def test_isolation_between_users(
-        self, redis_client: MockRedisClient
-    ) -> None:
+    async def test_isolation_between_users(self, redis_client: MockRedisClient) -> None:
         """user_id별로 알림이 분리됨."""
         await create_notification(
             user_id="alice",
@@ -280,9 +258,7 @@ class TestNotificationServiceList:
 class TestMarkRead:
     """``mark_read``."""
 
-    async def test_sets_read_and_read_at(
-        self, redis_client: MockRedisClient
-    ) -> None:
+    async def test_sets_read_and_read_at(self, redis_client: MockRedisClient) -> None:
         notif = await create_notification(
             user_id="u1",
             type_="experiment_complete",
@@ -293,9 +269,7 @@ class TestMarkRead:
             resource_id="r1",
         )
         ts = datetime(2026, 4, 1, 12, 0, tzinfo=UTC)
-        result = await mark_read(
-            user_id="u1", notification_id=notif.id, redis=redis_client, now=ts
-        )
+        result = await mark_read(user_id="u1", notification_id=notif.id, redis=redis_client, now=ts)
         assert result.read is True
         assert result.read_at == ts
 
@@ -311,9 +285,7 @@ class TestMarkRead:
             resource_id="r1",
         )
         ts1 = datetime(2026, 4, 1, 12, 0, tzinfo=UTC)
-        await mark_read(
-            user_id="u1", notification_id=notif.id, redis=redis_client, now=ts1
-        )
+        await mark_read(user_id="u1", notification_id=notif.id, redis=redis_client, now=ts1)
         result2 = await mark_read(
             user_id="u1",
             notification_id=notif.id,
@@ -323,17 +295,11 @@ class TestMarkRead:
         # 멱등 — read_at은 처음 시각 유지
         assert result2.read_at == ts1
 
-    async def test_unknown_id_raises_not_found(
-        self, redis_client: MockRedisClient
-    ) -> None:
+    async def test_unknown_id_raises_not_found(self, redis_client: MockRedisClient) -> None:
         with pytest.raises(NotificationNotFoundError):
-            await mark_read(
-                user_id="u1", notification_id="nonexistent", redis=redis_client
-            )
+            await mark_read(user_id="u1", notification_id="nonexistent", redis=redis_client)
 
-    async def test_other_user_notification_not_visible(
-        self, redis_client: MockRedisClient
-    ) -> None:
+    async def test_other_user_notification_not_visible(self, redis_client: MockRedisClient) -> None:
         """타 사용자 알림은 mark_read 시 NotFound — 정보 노출 방지."""
         notif = await create_notification(
             user_id="alice",
@@ -346,9 +312,7 @@ class TestMarkRead:
         )
         # bob이 alice의 알림 ID로 접근
         with pytest.raises(NotificationNotFoundError):
-            await mark_read(
-                user_id="bob", notification_id=notif.id, redis=redis_client
-            )
+            await mark_read(user_id="bob", notification_id=notif.id, redis=redis_client)
 
 
 @pytest.mark.unit
@@ -371,9 +335,7 @@ class TestMarkAllRead:
         result = await list_notifications(user_id="u1", redis=redis_client)
         assert result.unread_count == 0
 
-    async def test_skips_already_read(
-        self, redis_client: MockRedisClient
-    ) -> None:
+    async def test_skips_already_read(self, redis_client: MockRedisClient) -> None:
         n1 = await create_notification(
             user_id="u1",
             type_="experiment_complete",
@@ -401,9 +363,7 @@ class TestMarkAllRead:
 class TestDeleteNotification:
     """``delete_notification``."""
 
-    async def test_deletes_and_removes_from_index(
-        self, redis_client: MockRedisClient
-    ) -> None:
+    async def test_deletes_and_removes_from_index(self, redis_client: MockRedisClient) -> None:
         notif = await create_notification(
             user_id="u1",
             type_="experiment_complete",
@@ -413,24 +373,16 @@ class TestDeleteNotification:
             redis=redis_client,
             resource_id="r1",
         )
-        await delete_notification(
-            user_id="u1", notification_id=notif.id, redis=redis_client
-        )
+        await delete_notification(user_id="u1", notification_id=notif.id, redis=redis_client)
         # 인덱스에서 제거됨
         zcard = await redis_client._client.zcard("ax:notification:u1:index")
         assert zcard == 0
 
-    async def test_unknown_id_raises(
-        self, redis_client: MockRedisClient
-    ) -> None:
+    async def test_unknown_id_raises(self, redis_client: MockRedisClient) -> None:
         with pytest.raises(NotificationNotFoundError):
-            await delete_notification(
-                user_id="u1", notification_id="missing", redis=redis_client
-            )
+            await delete_notification(user_id="u1", notification_id="missing", redis=redis_client)
 
-    async def test_cannot_delete_other_users(
-        self, redis_client: MockRedisClient
-    ) -> None:
+    async def test_cannot_delete_other_users(self, redis_client: MockRedisClient) -> None:
         notif = await create_notification(
             user_id="alice",
             type_="experiment_complete",
@@ -441,9 +393,7 @@ class TestDeleteNotification:
             resource_id="r1",
         )
         with pytest.raises(NotificationNotFoundError):
-            await delete_notification(
-                user_id="bob", notification_id=notif.id, redis=redis_client
-            )
+            await delete_notification(user_id="bob", notification_id=notif.id, redis=redis_client)
 
 
 # ---------- 라우터 통합 ----------
@@ -453,9 +403,7 @@ def viewer_user() -> User:
 
 
 @pytest.fixture
-def app_with_notifications(
-    viewer_user: User, redis_client: MockRedisClient
-) -> TestClient:
+def app_with_notifications(viewer_user: User, redis_client: MockRedisClient) -> TestClient:
     app = create_app()
     app.dependency_overrides[get_redis_client] = lambda: redis_client
     app.dependency_overrides[get_current_user] = lambda: viewer_user
@@ -507,9 +455,7 @@ class TestNotificationRouter:
             redis=redis_client,
             resource_id="r1",
         )
-        resp = app_with_notifications.patch(
-            f"/api/v1/notifications/{notif.id}/read"
-        )
+        resp = app_with_notifications.patch(f"/api/v1/notifications/{notif.id}/read")
         assert resp.status_code == 200
         body = resp.json()
         assert body["id"] == notif.id
@@ -517,9 +463,7 @@ class TestNotificationRouter:
         # ETag 헤더 부착
         assert "etag" in {k.lower() for k in resp.headers}
 
-    def test_patch_unknown_returns_404(
-        self, app_with_notifications: TestClient
-    ) -> None:
+    def test_patch_unknown_returns_404(self, app_with_notifications: TestClient) -> None:
         resp = app_with_notifications.patch("/api/v1/notifications/missing/read")
         assert resp.status_code == 404
 
@@ -557,20 +501,14 @@ class TestNotificationRouter:
             redis=redis_client,
             resource_id="r1",
         )
-        resp = app_with_notifications.delete(
-            f"/api/v1/notifications/{notif.id}"
-        )
+        resp = app_with_notifications.delete(f"/api/v1/notifications/{notif.id}")
         assert resp.status_code == 204
 
-    def test_delete_unknown_returns_404(
-        self, app_with_notifications: TestClient
-    ) -> None:
+    def test_delete_unknown_returns_404(self, app_with_notifications: TestClient) -> None:
         resp = app_with_notifications.delete("/api/v1/notifications/missing")
         assert resp.status_code == 404
 
-    def test_unauthenticated_request_rejected(
-        self, redis_client: MockRedisClient
-    ) -> None:
+    def test_unauthenticated_request_rejected(self, redis_client: MockRedisClient) -> None:
         app = create_app()
         app.dependency_overrides[get_redis_client] = lambda: redis_client
         client = TestClient(app)

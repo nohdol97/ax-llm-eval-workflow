@@ -135,9 +135,7 @@ class TestSettingsEnvOverride:
         s2 = get_settings()
         assert s1 is s2
 
-    def test_get_settings_cache_clear(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_get_settings_cache_clear(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """cache_clear() 후엔 새 인스턴스가 환경변수를 다시 읽음."""
         get_settings.cache_clear()
         monkeypatch.setenv("LABS_ENV", "demo")
@@ -150,9 +148,7 @@ class TestSettingsEnvOverride:
 class TestSettingsExtraIgnored:
     """알 수 없는 환경변수는 무시 (extra='ignore')."""
 
-    def test_unknown_env_var_does_not_raise(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_unknown_env_var_does_not_raise(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """관계 없는 환경변수가 있어도 부팅 가능."""
         monkeypatch.setenv("SOME_UNRELATED_VAR", "value")
         # raise 안 나면 통과

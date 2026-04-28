@@ -140,12 +140,10 @@ class TestCompile:
 
     def test_특수문자_포함_값(self, engine: ContextEngine) -> None:
         """치환 값에 특수문자/유니코드가 포함되어도 안전."""
-        v = "한글 + emoji 🚀 + \\n + \"quotes\""
+        v = '한글 + emoji 🚀 + \\n + "quotes"'
         assert engine.compile("v={{x}}", {"x": v}) == f"v={v}"
 
-    def test_치환_값_안에_변수_패턴_있어도_재치환_안됨(
-        self, engine: ContextEngine
-    ) -> None:
+    def test_치환_값_안에_변수_패턴_있어도_재치환_안됨(self, engine: ContextEngine) -> None:
         """치환 값에 ``{{other}}``가 있어도 한 번만 치환된다 (재귀 미적용)."""
         result = engine.compile("Hi {{a}}", {"a": "{{b}}"})
         assert result == "Hi {{b}}"
@@ -295,9 +293,7 @@ class TestCompileWithSdk:
         result = engine.compile_with_sdk(NoCompilePrompt(), {"name": "Y"})
         assert result == "Hi Y"
 
-    def test_sdk_compile_TypeError시_dict_재시도(
-        self, engine: ContextEngine
-    ) -> None:
+    def test_sdk_compile_TypeError시_dict_재시도(self, engine: ContextEngine) -> None:
         """SDK compile이 kwargs 거부 시 dict 단일 인자로 재시도."""
 
         class DictOnlyCompile:

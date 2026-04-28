@@ -53,9 +53,7 @@ def viewer_user() -> User:
     return User(id="viewer-1", email="v@x.com", role="viewer")
 
 
-def _fake_validator(
-    *, code: str, test_cases: list[dict[str, Any]], **kwargs: Any
-) -> Any:
+def _fake_validator(*, code: str, test_cases: list[dict[str, Any]], **kwargs: Any) -> Any:
     """validate_code 대체 — 첫 케이스가 'BAD'면 error, 나머지는 result 0.5."""
 
     async def _runner() -> list[dict[str, Any]]:
@@ -74,9 +72,7 @@ def _fake_validator(
 @pytest.fixture
 def governance(redis_client: MockRedisClient) -> EvaluatorGovernanceService:
     """샌드박스 미사용 — validator를 가짜로 주입."""
-    return EvaluatorGovernanceService(
-        redis=redis_client, validator=_fake_validator
-    )
+    return EvaluatorGovernanceService(redis=redis_client, validator=_fake_validator)
 
 
 @pytest.fixture
@@ -225,9 +221,7 @@ class TestSubmissionService:
             test_cases=None,
         )
         with pytest.raises(SubmissionNotFoundError):
-            await governance.get_submission(
-                sub.submission_id, user_id="other", is_admin=False
-            )
+            await governance.get_submission(sub.submission_id, user_id="other", is_admin=False)
 
     async def test_admin_can_get_other_users_submission(
         self,
@@ -266,9 +260,7 @@ class TestSubmissionService:
             code="y",
             test_cases=None,
         )
-        result = await governance.list_submissions(
-            user_id="user-1", is_admin=False
-        )
+        result = await governance.list_submissions(user_id="user-1", is_admin=False)
         assert result.total == 1
         assert result.items[0].submitted_by == "user-1"
 
@@ -292,9 +284,7 @@ class TestSubmissionService:
             code="y",
             test_cases=None,
         )
-        result = await governance.list_submissions(
-            user_id="admin-1", is_admin=True
-        )
+        result = await governance.list_submissions(user_id="admin-1", is_admin=True)
         assert result.total == 2
 
     async def test_list_status_filter(
@@ -337,9 +327,7 @@ class TestSubmissionService:
             code="x",
             test_cases=None,
         )
-        approved = await governance.approve(
-            sub.submission_id, admin_id="admin-1", note="lgtm"
-        )
+        approved = await governance.approve(sub.submission_id, admin_id="admin-1", note="lgtm")
         assert approved.status == "approved"
         assert approved.approved_by == "admin-1"
         # 알림 — 제출자에게 evaluator_approved
@@ -376,9 +364,7 @@ class TestSubmissionService:
             code="x",
             test_cases=None,
         )
-        rejected = await governance.reject(
-            sub.submission_id, admin_id="admin-1", reason="중복"
-        )
+        rejected = await governance.reject(sub.submission_id, admin_id="admin-1", reason="중복")
         assert rejected.status == "rejected"
         assert rejected.rejection_reason == "중복"
         # 알림 발송 확인
@@ -398,9 +384,7 @@ class TestSubmissionService:
             code="x",
             test_cases=None,
         )
-        deprecated = await governance.deprecate(
-            sub.submission_id, admin_id="admin-1"
-        )
+        deprecated = await governance.deprecate(sub.submission_id, admin_id="admin-1")
         assert deprecated.status == "deprecated"
         assert deprecated.deprecated_at is not None
 
@@ -496,9 +480,7 @@ class TestBuiltInEndpoint:
 class TestValidateEndpoint:
     """``POST /api/v1/evaluators/validate`` — 사전 검증."""
 
-    def test_validate_returns_per_case_results(
-        self, app_for_user: TestClient
-    ) -> None:
+    def test_validate_returns_per_case_results(self, app_for_user: TestClient) -> None:
         resp = app_for_user.post(
             "/api/v1/evaluators/validate",
             json={
@@ -514,9 +496,7 @@ class TestValidateEndpoint:
         assert results[0].get("result") == 0.5
         assert results[1].get("error")
 
-    def test_viewer_cannot_call_validate(
-        self, app_for_viewer: TestClient
-    ) -> None:
+    def test_viewer_cannot_call_validate(self, app_for_viewer: TestClient) -> None:
         resp = app_for_viewer.post(
             "/api/v1/evaluators/validate",
             json={"code": "x", "test_cases": []},
@@ -528,9 +508,7 @@ class TestValidateEndpoint:
 class TestSubmissionEndpoint:
     """제출 / 목록 / 단건 조회."""
 
-    def test_user_creates_pending_submission(
-        self, app_for_user: TestClient
-    ) -> None:
+    def test_user_creates_pending_submission(self, app_for_user: TestClient) -> None:
         resp = app_for_user.post(
             "/api/v1/evaluators/submissions",
             json={
@@ -545,9 +523,7 @@ class TestSubmissionEndpoint:
         assert body["submitted_by"] == "user-1"
         assert "etag" in {k.lower() for k in resp.headers}
 
-    def test_admin_auto_approves_submission(
-        self, app_for_admin: TestClient
-    ) -> None:
+    def test_admin_auto_approves_submission(self, app_for_admin: TestClient) -> None:
         resp = app_for_admin.post(
             "/api/v1/evaluators/submissions",
             json={
@@ -561,9 +537,7 @@ class TestSubmissionEndpoint:
         assert body["status"] == "approved"
         assert body["approved_by"] == "admin-1"
 
-    def test_submission_with_invalid_code_returns_422(
-        self, app_for_user: TestClient
-    ) -> None:
+    def test_submission_with_invalid_code_returns_422(self, app_for_user: TestClient) -> None:
         resp = app_for_user.post(
             "/api/v1/evaluators/submissions",
             json={
@@ -632,9 +606,7 @@ class TestSubmissionEndpoint:
                 test_cases=None,
             )
         )
-        resp = app_for_user.get(
-            f"/api/v1/evaluators/submissions/{sub.submission_id}"
-        )
+        resp = app_for_user.get(f"/api/v1/evaluators/submissions/{sub.submission_id}")
         assert resp.status_code == 404
 
 
@@ -787,9 +759,7 @@ class TestAdminGovernanceEndpoints:
                 test_cases=None,
             )
         )
-        r1 = app_for_admin.post(
-            f"/api/v1/evaluators/submissions/{sub.submission_id}/deprecate"
-        )
+        r1 = app_for_admin.post(f"/api/v1/evaluators/submissions/{sub.submission_id}/deprecate")
         assert r1.status_code == 409
 
     def test_admin_deprecate_after_approval(
@@ -809,9 +779,7 @@ class TestAdminGovernanceEndpoints:
                 test_cases=None,
             )
         )
-        resp = app_for_admin.post(
-            f"/api/v1/evaluators/submissions/{sub.submission_id}/deprecate"
-        )
+        resp = app_for_admin.post(f"/api/v1/evaluators/submissions/{sub.submission_id}/deprecate")
         assert resp.status_code == 200
         body = resp.json()
         assert body["status"] == "deprecated"

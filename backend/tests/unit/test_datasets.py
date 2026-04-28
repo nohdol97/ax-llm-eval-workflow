@@ -94,10 +94,7 @@ class TestParseFile:
 
     def test_parse_jsonl(self) -> None:
         """JSONL 한 줄당 한 객체."""
-        content = (
-            b'{"q":"hi","a":"hello"}\n'
-            b'{"q":"bye","a":"goodbye"}\n'
-        )
+        content = b'{"q":"hi","a":"hello"}\n{"q":"bye","a":"goodbye"}\n'
         mapping = UploadMappingRequest(input_columns=["q"], output_column="a")
         rows = list(parse_file(content, "data.jsonl", mapping))
         assert len(rows) == 2
@@ -138,9 +135,7 @@ class TestParseFile:
         from app.services.dataset_service import DatasetValidationError
 
         content = b"text,label\nhi,p\n"
-        mapping = UploadMappingRequest(
-            input_columns=["nonexistent"], output_column="label"
-        )
+        mapping = UploadMappingRequest(input_columns=["nonexistent"], output_column="label")
         with pytest.raises(DatasetValidationError):
             list(parse_file(content, "data.csv", mapping))
 
@@ -220,9 +215,7 @@ class TestDetectFormat:
 class TestFormulaInjection:
     """CSV formula injection 방지."""
 
-    @pytest.mark.parametrize(
-        "value", ["=cmd|/c", "+1+1", "-2+3", "@SUM", "\tHIDDEN", "\rEVIL"]
-    )
+    @pytest.mark.parametrize("value", ["=cmd|/c", "+1+1", "-2+3", "@SUM", "\tHIDDEN", "\rEVIL"])
     def test_dangerous_prefix_detected(self, value: str) -> None:
         """위험한 prefix는 sanitize 시 ``'`` 추가."""
         assert is_formula_injection(value) is True
@@ -245,9 +238,7 @@ class TestFormulaInjection:
 class TestProgressPersistence:
     """Redis 진행률 저장/조회."""
 
-    async def test_save_and_load_progress(
-        self, redis_client: MockRedisClient
-    ) -> None:
+    async def test_save_and_load_progress(self, redis_client: MockRedisClient) -> None:
         """진행 상태가 정확히 저장/조회된다."""
         await _save_progress(
             redis_client,  # type: ignore[arg-type]
@@ -266,9 +257,7 @@ class TestProgressPersistence:
         assert snap["dataset_name"] == "test_ds"
         assert snap["owner_user_id"] == "user-1"
 
-    async def test_load_missing_returns_none(
-        self, redis_client: MockRedisClient
-    ) -> None:
+    async def test_load_missing_returns_none(self, redis_client: MockRedisClient) -> None:
         """존재하지 않는 키는 None."""
         snap = await _load_progress(redis_client, "nonexistent")  # type: ignore[arg-type]
         assert snap is None
@@ -377,7 +366,10 @@ class TestSSEStream:
         flip_task = asyncio.create_task(_flip_to_completed())
         events: list[str] = []
         async for chunk in stream_upload_progress(
-            upload_id, redis_client, poll_interval=0.05, timeout_sec=5.0  # type: ignore[arg-type]
+            upload_id,
+            redis_client,
+            poll_interval=0.05,
+            timeout_sec=5.0,  # type: ignore[arg-type]
         ):
             events.append(chunk)
             if "event: done" in chunk or "event: error" in chunk:
@@ -402,7 +394,10 @@ class TestSSEStream:
         """존재하지 않는 upload_id → error 이벤트."""
         events: list[str] = []
         async for chunk in stream_upload_progress(
-            "missing_id", redis_client, poll_interval=0.05, timeout_sec=2.0  # type: ignore[arg-type]
+            "missing_id",
+            redis_client,
+            poll_interval=0.05,
+            timeout_sec=2.0,  # type: ignore[arg-type]
         ):
             events.append(chunk)
             if "event: error" in chunk:
@@ -465,15 +460,9 @@ class TestDatasetRouter:
 
     def test_upload_preview(self, client: TestClient) -> None:
         """업로드 미리보기 — 첫 5건 + 컬럼."""
-        content = "text,label\n" + "\n".join(
-            f"row_{i},lbl_{i}" for i in range(10)
-        )
+        content = "text,label\n" + "\n".join(f"row_{i},lbl_{i}" for i in range(10))
         files = {"file": ("data.csv", io.BytesIO(content.encode()), "text/csv")}
-        data = {
-            "mapping": json.dumps(
-                {"input_columns": ["text"], "output_column": "label"}
-            )
-        }
+        data = {"mapping": json.dumps({"input_columns": ["text"], "output_column": "label"})}
         resp = client.post("/api/v1/datasets/upload/preview", files=files, data=data)
         assert resp.status_code == 200, resp.text
         body = resp.json()
@@ -490,9 +479,7 @@ class TestDatasetRouter:
         files = {"file": ("data.csv", io.BytesIO(content), "text/csv")}
         data = {
             "dataset_name": "uploaded_ds",
-            "mapping": json.dumps(
-                {"input_columns": ["text"], "output_column": "label"}
-            ),
+            "mapping": json.dumps({"input_columns": ["text"], "output_column": "label"}),
         }
         resp = client.post("/api/v1/datasets/upload", files=files, data=data)
         assert resp.status_code == 202
@@ -512,19 +499,13 @@ class TestDatasetRouter:
         files = {"file": ("data.csv", io.BytesIO(content), "text/csv")}
         data = {
             "dataset_name": "idem_ds",
-            "mapping": json.dumps(
-                {"input_columns": ["text"], "output_column": "label"}
-            ),
+            "mapping": json.dumps({"input_columns": ["text"], "output_column": "label"}),
         }
         headers = {"Idempotency-Key": "test-key-1"}
 
-        r1 = client.post(
-            "/api/v1/datasets/upload", files=files, data=data, headers=headers
-        )
+        r1 = client.post("/api/v1/datasets/upload", files=files, data=data, headers=headers)
         files2 = {"file": ("data.csv", io.BytesIO(content), "text/csv")}
-        r2 = client.post(
-            "/api/v1/datasets/upload", files=files2, data=data, headers=headers
-        )
+        r2 = client.post("/api/v1/datasets/upload", files=files2, data=data, headers=headers)
         assert r1.json()["upload_id"] == r2.json()["upload_id"]
 
 
@@ -563,9 +544,7 @@ class TestRBAC:
         files = {"file": ("d.csv", io.BytesIO(b"x,y\n1,2"), "text/csv")}
         data = {
             "dataset_name": "x",
-            "mapping": json.dumps(
-                {"input_columns": ["x"], "output_column": "y"}
-            ),
+            "mapping": json.dumps({"input_columns": ["x"], "output_column": "y"}),
         }
         resp = c.post("/api/v1/datasets/upload", files=files, data=data)
         assert resp.status_code == 403
@@ -685,9 +664,7 @@ class TestFromItems:
         assert body["items_created"] == 1
         assert body["status"] == "partial"
 
-    def test_from_items_validation_empty(
-        self, client: TestClient
-    ) -> None:
+    def test_from_items_validation_empty(self, client: TestClient) -> None:
         """item_ids 비어 있으면 422."""
         payload = {
             "project_id": "p",

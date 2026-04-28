@@ -253,9 +253,7 @@ class CustomCodeEvaluator:
                 stderr=asyncio.subprocess.PIPE,
             )
         except FileNotFoundError as exc:
-            raise SandboxStartupError(
-                "docker 명령을 찾을 수 없습니다 (PATH 확인 필요)"
-            ) from exc
+            raise SandboxStartupError("docker 명령을 찾을 수 없습니다 (PATH 확인 필요)") from exc
         except OSError as exc:
             raise SandboxStartupError(f"docker run 실행 실패: {exc}") from exc
 
@@ -268,9 +266,7 @@ class CustomCodeEvaluator:
 
         if proc.returncode != 0:
             err = stderr.decode("utf-8", errors="replace").strip() if stderr else ""
-            raise SandboxStartupError(
-                f"docker run 실패 (exit={proc.returncode}): {err[:200]}"
-            )
+            raise SandboxStartupError(f"docker run 실패 (exit={proc.returncode}): {err[:200]}")
 
         cid = stdout.decode("utf-8", errors="replace").strip()
         if not cid:
@@ -295,9 +291,7 @@ class CustomCodeEvaluator:
                     stderr=asyncio.subprocess.PIPE,
                 )
             except FileNotFoundError as exc:
-                raise SandboxExecError(
-                    "docker 명령을 찾을 수 없습니다"
-                ) from exc
+                raise SandboxExecError("docker 명령을 찾을 수 없습니다") from exc
             except OSError as exc:
                 raise SandboxExecError(f"docker exec 실행 실패: {exc}") from exc
 
@@ -312,14 +306,10 @@ class CustomCodeEvaluator:
                     await asyncio.wait_for(proc.wait(), timeout=2.0)
                 except TimeoutError:
                     pass
-                raise EvaluatorTimeoutError(
-                    f"custom_code timeout after {self._timeout}s"
-                ) from exc
+                raise EvaluatorTimeoutError(f"custom_code timeout after {self._timeout}s") from exc
 
         if proc.returncode not in (0, None):
-            raise SandboxExecError(
-                f"docker exec returned {proc.returncode}"
-            )
+            raise SandboxExecError(f"docker exec returned {proc.returncode}")
 
         text = stdout.decode("utf-8", errors="replace").strip() if stdout else ""
         if not text:
@@ -337,9 +327,7 @@ class CustomCodeEvaluator:
             if isinstance(payload, dict):
                 return payload
 
-        raise SandboxExecError(
-            f"runner.py 응답 JSON 파싱 실패: {text[:120]!r}"
-        )
+        raise SandboxExecError(f"runner.py 응답 JSON 파싱 실패: {text[:120]!r}")
 
     async def _kill_container(self, container_id: str) -> None:
         """컨테이너 강제 종료 + 정리. 실패해도 raise하지 않는다."""
@@ -402,9 +390,7 @@ async def validate_code(
                 expected = case.get("expected")
                 metadata = case.get("metadata") or {}
                 if not isinstance(metadata, dict):
-                    results.append(
-                        {"error": f"metadata must be a dict (case {index})"}
-                    )
+                    results.append({"error": f"metadata must be a dict (case {index})"})
                     continue
                 try:
                     score = await live.evaluate(

@@ -108,8 +108,14 @@ def _to_status(value: Any, default: ExperimentStatus = "pending") -> ExperimentS
     """문자열 → ``ExperimentStatus`` 좁히기 (미지값은 default로 강등)."""
     raw = str(_decode(value) or "").strip()
     valid: tuple[str, ...] = (
-        "pending", "queued", "running", "paused",
-        "completed", "failed", "cancelled", "degraded",
+        "pending",
+        "queued",
+        "running",
+        "paused",
+        "completed",
+        "failed",
+        "cancelled",
+        "degraded",
     )
     if raw in valid:
         return cast(ExperimentStatus, raw)
@@ -176,9 +182,7 @@ class ExperimentQuery:
         if project_id_filter:
             mp = str(meta.get("project_id", ""))
             if mp and mp != project_id_filter:
-                raise ExperimentNotFoundError(
-                    detail="다른 프로젝트의 실험에 접근할 수 없습니다."
-                )
+                raise ExperimentNotFoundError(detail="다른 프로젝트의 실험에 접근할 수 없습니다.")
 
         if user_role == "admin":
             return

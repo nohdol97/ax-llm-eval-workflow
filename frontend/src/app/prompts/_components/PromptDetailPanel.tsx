@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, FlaskConical } from "lucide-react";
 import { SlideOver } from "@/components/ui/SlideOver";
 import { Badge } from "@/components/ui/Badge";
@@ -60,7 +60,10 @@ export function PromptDetailPanel({
   );
   const promoteMutation = usePromoteLabel();
 
-  const versions = versionsQuery.data?.versions ?? [];
+  const versions = useMemo(
+    () => versionsQuery.data?.versions ?? [],
+    [versionsQuery.data?.versions]
+  );
   const prompt: PromptDetail | undefined = detailQuery.data;
 
   // 최신 버전을 기본으로 활성화

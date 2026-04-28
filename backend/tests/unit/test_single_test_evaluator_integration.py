@@ -27,9 +27,7 @@ def runner_with_pipeline(
     litellm_client: MockLiteLLMProxy,
 ) -> SingleTestRunner:
     """``SingleTestRunner`` + 실제 ``EvaluationPipeline`` 주입."""
-    pipeline = EvaluationPipeline(
-        langfuse=langfuse_client, litellm_client=litellm_client
-    )
+    pipeline = EvaluationPipeline(langfuse=langfuse_client, litellm_client=litellm_client)
     return SingleTestRunner(
         langfuse=langfuse_client,  # type: ignore[arg-type]
         litellm=litellm_client,  # type: ignore[arg-type]
@@ -249,6 +247,4 @@ class TestEvaluatorLangfuseScoreRecording:
 
         # MockLangfuseClient에는 score 기록을 담는 store가 있다고 가정 — 없으면 호출만 검증
         # 본 mock의 score 메서드는 호출 추적 가능
-        assert hasattr(langfuse_client, "_get_scores") or hasattr(
-            langfuse_client, "score"
-        )
+        assert hasattr(langfuse_client, "_get_scores") or hasattr(langfuse_client, "score")

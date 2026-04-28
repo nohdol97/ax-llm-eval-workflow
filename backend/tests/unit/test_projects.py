@@ -38,6 +38,7 @@ def _clear_settings_cache() -> Iterator[None]:
 def _override_user(user: User) -> Any:
     def _resolver() -> User:
         return user
+
     return _resolver
 
 
@@ -93,9 +94,7 @@ class TestListProjects:
 
     def test_viewer_can_list(self) -> None:
         """viewer 권한으로 list 접근 가능."""
-        settings = _settings_with_projects(
-            [{"id": "p1", "name": "Project One"}]
-        )
+        settings = _settings_with_projects([{"id": "p1", "name": "Project One"}])
         client = _make_client(VIEWER, settings)
         resp = client.get("/api/v1/projects")
         assert resp.status_code == 200
@@ -127,27 +126,21 @@ class TestSwitchProject:
         """admin 권한도 가능."""
         settings = _settings_with_projects([{"id": "p1", "name": "One"}])
         client = _make_client(ADMIN, settings)
-        resp = client.post(
-            "/api/v1/projects/switch", json={"project_id": "p1"}
-        )
+        resp = client.post("/api/v1/projects/switch", json={"project_id": "p1"})
         assert resp.status_code == 200
 
     def test_viewer_cannot_switch(self) -> None:
         """viewer → 403 (user 이상 필요)."""
         settings = _settings_with_projects([{"id": "p1", "name": "One"}])
         client = _make_client(VIEWER, settings)
-        resp = client.post(
-            "/api/v1/projects/switch", json={"project_id": "p1"}
-        )
+        resp = client.post("/api/v1/projects/switch", json={"project_id": "p1"})
         assert resp.status_code == 403
 
     def test_unknown_project_returns_404(self) -> None:
         """미등록 프로젝트 → 404 PROJECT_NOT_FOUND."""
         settings = _settings_with_projects([{"id": "p1", "name": "One"}])
         client = _make_client(USER, settings)
-        resp = client.post(
-            "/api/v1/projects/switch", json={"project_id": "ghost"}
-        )
+        resp = client.post("/api/v1/projects/switch", json={"project_id": "ghost"})
         assert resp.status_code == 404
         body = resp.json()
         assert body["code"] == "PROJECT_NOT_FOUND"

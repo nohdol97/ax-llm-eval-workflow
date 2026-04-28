@@ -75,9 +75,7 @@ async def _with_timeout(
     )
 
 
-async def _check_prometheus(
-    settings: Settings, timeout: float
-) -> ServiceHealth:
+async def _check_prometheus(settings: Settings, timeout: float) -> ServiceHealth:
     """Prometheus query URL의 ``/-/ready`` 호출."""
     if not settings.PROMETHEUS_QUERY_URL:
         return ServiceHealth(
@@ -126,9 +124,7 @@ async def _check_otel(settings: Settings, timeout: float) -> ServiceHealth:
             detail="OTEL_EXPORTER_OTLP_ENDPOINT not configured",
             checked_at=datetime.now(UTC),
         )
-    endpoint = (
-        settings.OTEL_EXPORTER_OTLP_ENDPOINT.rstrip("/") + "/v1/traces"
-    )
+    endpoint = settings.OTEL_EXPORTER_OTLP_ENDPOINT.rstrip("/") + "/v1/traces"
     start = time.perf_counter()
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
@@ -201,9 +197,9 @@ async def get_health(
     langfuse: LangfuseClient = Depends(get_langfuse_client),
     litellm: LiteLLMClient = Depends(get_litellm_client),
     redis: RedisClient = Depends(get_redis_client),
-    clickhouse: ClickHouseClient
-    | LangfusePublicAPIFallbackClient
-    | None = Depends(get_clickhouse_client),
+    clickhouse: ClickHouseClient | LangfusePublicAPIFallbackClient | None = Depends(
+        get_clickhouse_client
+    ),
 ) -> HealthResponse:
     """7종 외부 시스템(Langfuse / LiteLLM / ClickHouse / Prometheus / OTel /
     Loki / Redis) 헬스 체크 결과를 반환한다.
@@ -216,9 +212,7 @@ async def get_health(
 
     # ClickHouse 헬스 (직접 또는 폴백, 미설정 시 warn)
     if clickhouse is None:
-        clickhouse_coro = _identity(
-            _make_warn_health("ClickHouse client not initialized")
-        )
+        clickhouse_coro = _identity(_make_warn_health("ClickHouse client not initialized"))
     else:
         clickhouse_coro = _with_timeout(clickhouse.health_check(), timeout=timeout)
 

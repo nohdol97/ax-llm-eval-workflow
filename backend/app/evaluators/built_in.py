@@ -360,10 +360,7 @@ class JsonKeyPresenceEvaluator:
             elif isinstance(node, list):
                 # 리스트 요소 중 하나라도 path를 만족하면 True
                 rest = path[i:]
-                return any(
-                    JsonKeyPresenceEvaluator._key_present(child, rest)
-                    for child in node
-                )
+                return any(JsonKeyPresenceEvaluator._key_present(child, rest) for child in node)
             else:
                 return False
         return True
@@ -387,9 +384,9 @@ def _levenshtein(a: str, b: str) -> int:
         for j, cb in enumerate(b, start=1):
             cost = 0 if ca == cb else 1
             curr[j] = min(
-                curr[j - 1] + 1,        # insertion
-                prev[j] + 1,            # deletion
-                prev[j - 1] + cost,     # substitution
+                curr[j - 1] + 1,  # insertion
+                prev[j] + 1,  # deletion
+                prev[j - 1] + cost,  # substitution
             )
         prev = curr
     return prev[-1]
@@ -515,9 +512,7 @@ def _ngrams(tokens: list[str], n: int) -> Counter[tuple[str, ...]]:
     return Counter(tuple(tokens[i : i + n]) for i in range(len(tokens) - n + 1))
 
 
-def _modified_precision(
-    hyp_tokens: list[str], ref_tokens: list[str], n: int
-) -> tuple[int, int]:
+def _modified_precision(hyp_tokens: list[str], ref_tokens: list[str], n: int) -> tuple[int, int]:
     """BLEU 변형 precision: clipped match count / total hyp ngrams."""
     hyp_counts = _ngrams(hyp_tokens, n)
     ref_counts = _ngrams(ref_tokens, n)

@@ -86,9 +86,7 @@ def _make_token(
         format=serialization.PrivateFormat.PKCS8,
         encryption_algorithm=serialization.NoEncryption(),
     )
-    return pyjwt.encode(
-        payload, pem, algorithm="RS256", headers={"kid": "test-key-1"}
-    )
+    return pyjwt.encode(payload, pem, algorithm="RS256", headers={"kid": "test-key-1"})
 
 
 @pytest.fixture

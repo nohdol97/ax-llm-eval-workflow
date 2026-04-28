@@ -35,9 +35,7 @@ _WRITE_RE = re.compile(
 class TestQuerySafety:
     """모든 쿼리에 대한 정적 보안 검증."""
 
-    @pytest.mark.parametrize(
-        "name,sql", ALL_QUERIES, ids=[n for n, _ in ALL_QUERIES]
-    )
+    @pytest.mark.parametrize("name,sql", ALL_QUERIES, ids=[n for n, _ in ALL_QUERIES])
     def test_no_fstring_variable(self, name: str, sql: str) -> None:
         """``{var}`` 단독 형태(f-string 잔재)가 없다."""
         match = _FSTRING_VAR.search(sql)
@@ -45,33 +43,23 @@ class TestQuerySafety:
             f"{name}: f-string variable interpolation detected: {match.group(0) if match else ''}"
         )
 
-    @pytest.mark.parametrize(
-        "name,sql", ALL_QUERIES, ids=[n for n, _ in ALL_QUERIES]
-    )
+    @pytest.mark.parametrize("name,sql", ALL_QUERIES, ids=[n for n, _ in ALL_QUERIES])
     def test_no_percent_s_interpolation(self, name: str, sql: str) -> None:
         """``%(name)s`` 보간이 없다."""
         assert _PERCENT_S.search(sql) is None, f"{name}: %(...)s pattern detected"
 
-    @pytest.mark.parametrize(
-        "name,sql", ALL_QUERIES, ids=[n for n, _ in ALL_QUERIES]
-    )
+    @pytest.mark.parametrize("name,sql", ALL_QUERIES, ids=[n for n, _ in ALL_QUERIES])
     def test_has_limit_clause(self, name: str, sql: str) -> None:
         """모든 쿼리에 LIMIT 절이 명시되어 있다."""
         assert _LIMIT_RE.search(sql) is not None, f"{name}: LIMIT clause missing"
 
-    @pytest.mark.parametrize(
-        "name,sql", ALL_QUERIES, ids=[n for n, _ in ALL_QUERIES]
-    )
+    @pytest.mark.parametrize("name,sql", ALL_QUERIES, ids=[n for n, _ in ALL_QUERIES])
     def test_has_parameterized_syntax(self, name: str, sql: str) -> None:
         """ClickHouse 파라미터화 문법 ``{name:Type}`` 이 적어도 1회 존재."""
         # LATENCY_STATS_QUERY 등은 다수 파라미터를 가진다.
-        assert _PARAM_RE.search(sql), (
-            f"{name}: parameterized syntax {{name:Type}} not found"
-        )
+        assert _PARAM_RE.search(sql), f"{name}: parameterized syntax {{name:Type}} not found"
 
-    @pytest.mark.parametrize(
-        "name,sql", ALL_QUERIES, ids=[n for n, _ in ALL_QUERIES]
-    )
+    @pytest.mark.parametrize("name,sql", ALL_QUERIES, ids=[n for n, _ in ALL_QUERIES])
     def test_no_write_verbs(self, name: str, sql: str) -> None:
         """SELECT 외 쓰기 동사가 없다."""
         # JSONExtract* 같은 내장 함수는 쓰기 동사가 아니므로 단어 경계 검사로 OK
@@ -87,9 +75,7 @@ class TestQuerySafety:
 class TestValidatorIntegration:
     """``ClickHouseClient._validate_sql`` 가 모든 쿼리를 통과시킨다."""
 
-    @pytest.mark.parametrize(
-        "name,sql", ALL_QUERIES, ids=[n for n, _ in ALL_QUERIES]
-    )
+    @pytest.mark.parametrize("name,sql", ALL_QUERIES, ids=[n for n, _ in ALL_QUERIES])
     def test_validate_sql_passes(self, name: str, sql: str) -> None:
         """프로덕션 검증기를 통과해야 한다."""
         try:
@@ -97,16 +83,12 @@ class TestValidatorIntegration:
         except ClickHouseSecurityError as exc:
             pytest.fail(f"{name}: validator rejected query — {exc}")
 
-    @pytest.mark.parametrize(
-        "name,sql", ALL_QUERIES, ids=[n for n, _ in ALL_QUERIES]
-    )
+    @pytest.mark.parametrize("name,sql", ALL_QUERIES, ids=[n for n, _ in ALL_QUERIES])
     def test_ensure_limit_idempotent(self, name: str, sql: str) -> None:
         """이미 LIMIT가 있어도 자동 LIMIT가 추가되지 않는다."""
         result = _ensure_limit(sql)
         # LIMIT가 1번만 등장
-        assert len(_LIMIT_RE.findall(result)) == 1, (
-            f"{name}: LIMIT가 중복 추가됨"
-        )
+        assert len(_LIMIT_RE.findall(result)) == 1, f"{name}: LIMIT가 중복 추가됨"
 
 
 @pytest.mark.unit

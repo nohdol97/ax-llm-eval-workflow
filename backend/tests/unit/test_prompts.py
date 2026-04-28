@@ -111,8 +111,10 @@ def _override_user(user: User) -> Any:
     대신 ``get_current_user``를 override하면 모든 ``require_role`` 의존성 트리
     하단에서 일관된 user를 사용한다 — 단, 권한 체크 로직 자체는 그대로 동작.
     """
+
     def _resolver() -> User:
         return user
+
     return _resolver
 
 
@@ -137,9 +139,7 @@ def _make_settings() -> Settings:
     )
 
 
-def _client_with_user(
-    user: User, langfuse: MockLangfuseClient
-) -> TestClient:
+def _client_with_user(user: User, langfuse: MockLangfuseClient) -> TestClient:
     """주어진 사용자/Langfuse mock으로 dependency-override된 TestClient."""
     app = create_app()
     app.dependency_overrides[get_current_user] = _override_user(user)
@@ -187,9 +187,7 @@ def _seed_three_prompts(mock: MockLangfuseClient) -> None:
 class TestListPrompts:
     """``GET /api/v1/prompts``."""
 
-    def test_returns_latest_version_per_name(
-        self, langfuse_client: MockLangfuseClient
-    ) -> None:
+    def test_returns_latest_version_per_name(self, langfuse_client: MockLangfuseClient) -> None:
         """같은 이름의 여러 버전 중 최신만 노출."""
         _seed_three_prompts(langfuse_client)
         client = _client_with_user(VIEWER, langfuse_client)
@@ -206,21 +204,15 @@ class TestListPrompts:
         """page_size=2 + page=1 → 2건, page=2 → 1건."""
         _seed_three_prompts(langfuse_client)
         client = _client_with_user(VIEWER, langfuse_client)
-        resp1 = client.get(
-            "/api/v1/prompts?project_id=default&page=1&page_size=2"
-        )
-        resp2 = client.get(
-            "/api/v1/prompts?project_id=default&page=2&page_size=2"
-        )
+        resp1 = client.get("/api/v1/prompts?project_id=default&page=1&page_size=2")
+        resp2 = client.get("/api/v1/prompts?project_id=default&page=2&page_size=2")
         assert resp1.status_code == 200
         assert resp2.status_code == 200
         assert len(resp1.json()["items"]) == 2
         assert len(resp2.json()["items"]) == 1
         assert resp1.json()["total"] == 3
 
-    def test_unknown_project_returns_404(
-        self, langfuse_client: MockLangfuseClient
-    ) -> None:
+    def test_unknown_project_returns_404(self, langfuse_client: MockLangfuseClient) -> None:
         """등록되지 않은 ``project_id`` → 404 PROJECT_NOT_FOUND."""
         client = _client_with_user(VIEWER, langfuse_client)
         resp = client.get("/api/v1/prompts?project_id=nope")
@@ -228,25 +220,19 @@ class TestListPrompts:
         body = resp.json()
         assert body["code"] == "PROJECT_NOT_FOUND"
 
-    def test_missing_project_id_returns_422(
-        self, langfuse_client: MockLangfuseClient
-    ) -> None:
+    def test_missing_project_id_returns_422(self, langfuse_client: MockLangfuseClient) -> None:
         """``project_id`` 누락 → 422 VALIDATION."""
         client = _client_with_user(VIEWER, langfuse_client)
         resp = client.get("/api/v1/prompts")
         assert resp.status_code == 422
 
-    def test_page_size_too_large_returns_422(
-        self, langfuse_client: MockLangfuseClient
-    ) -> None:
+    def test_page_size_too_large_returns_422(self, langfuse_client: MockLangfuseClient) -> None:
         """``page_size > 100`` → 422."""
         client = _client_with_user(VIEWER, langfuse_client)
         resp = client.get("/api/v1/prompts?project_id=default&page_size=200")
         assert resp.status_code == 422
 
-    def test_empty_project_returns_zero_items(
-        self, langfuse_client: MockLangfuseClient
-    ) -> None:
+    def test_empty_project_returns_zero_items(self, langfuse_client: MockLangfuseClient) -> None:
         """seed 없음 → items=[]."""
         client = _client_with_user(VIEWER, langfuse_client)
         resp = client.get("/api/v1/prompts?project_id=default")
@@ -259,15 +245,11 @@ class TestListPrompts:
 class TestGetPrompt:
     """``GET /api/v1/prompts/{name}``."""
 
-    def test_detail_includes_extracted_variables(
-        self, langfuse_client: MockLangfuseClient
-    ) -> None:
+    def test_detail_includes_extracted_variables(self, langfuse_client: MockLangfuseClient) -> None:
         """본문에서 ``{{var}}`` 추출되어 응답에 포함."""
         _seed_three_prompts(langfuse_client)
         client = _client_with_user(VIEWER, langfuse_client)
-        resp = client.get(
-            "/api/v1/prompts/translate?project_id=default"
-        )
+        resp = client.get("/api/v1/prompts/translate?project_id=default")
         assert resp.status_code == 200
         body = resp.json()
         assert body["name"] == "translate"
@@ -279,33 +261,23 @@ class TestGetPrompt:
         """``version=1`` 명시 → 그 버전 반환."""
         _seed_three_prompts(langfuse_client)
         client = _client_with_user(VIEWER, langfuse_client)
-        resp = client.get(
-            "/api/v1/prompts/summary?project_id=default&version=1"
-        )
+        resp = client.get("/api/v1/prompts/summary?project_id=default&version=1")
         assert resp.status_code == 200
         assert resp.json()["version"] == 1
         assert resp.json()["prompt"] == "Summarize {{text}}"
 
-    def test_label_resolves_to_version(
-        self, langfuse_client: MockLangfuseClient
-    ) -> None:
+    def test_label_resolves_to_version(self, langfuse_client: MockLangfuseClient) -> None:
         """``label=production`` → 해당 라벨이 가리키는 버전."""
         _seed_three_prompts(langfuse_client)
         client = _client_with_user(VIEWER, langfuse_client)
-        resp = client.get(
-            "/api/v1/prompts/translate?project_id=default&label=production"
-        )
+        resp = client.get("/api/v1/prompts/translate?project_id=default&label=production")
         assert resp.status_code == 200
         assert resp.json()["version"] == 1
 
-    def test_unknown_prompt_returns_404(
-        self, langfuse_client: MockLangfuseClient
-    ) -> None:
+    def test_unknown_prompt_returns_404(self, langfuse_client: MockLangfuseClient) -> None:
         """존재하지 않는 프롬프트 → 404 PROMPT_NOT_FOUND."""
         client = _client_with_user(VIEWER, langfuse_client)
-        resp = client.get(
-            "/api/v1/prompts/missing?project_id=default"
-        )
+        resp = client.get("/api/v1/prompts/missing?project_id=default")
         assert resp.status_code == 404
         assert resp.json()["code"] == "PROMPT_NOT_FOUND"
 
@@ -315,23 +287,17 @@ class TestGetPrompt:
 class TestListVersions:
     """``GET /api/v1/prompts/{name}/versions``."""
 
-    def test_returns_all_versions_descending(
-        self, langfuse_client: MockLangfuseClient
-    ) -> None:
+    def test_returns_all_versions_descending(self, langfuse_client: MockLangfuseClient) -> None:
         """버전 2,1 순서로 반환."""
         _seed_three_prompts(langfuse_client)
         client = _client_with_user(VIEWER, langfuse_client)
-        resp = client.get(
-            "/api/v1/prompts/summary/versions?project_id=default"
-        )
+        resp = client.get("/api/v1/prompts/summary/versions?project_id=default")
         assert resp.status_code == 200
         body = resp.json()
         assert body["total"] == 2
         assert [v["version"] for v in body["items"]] == [2, 1]
 
-    def test_unknown_prompt_returns_404(
-        self, langfuse_client: MockLangfuseClient
-    ) -> None:
+    def test_unknown_prompt_returns_404(self, langfuse_client: MockLangfuseClient) -> None:
         """존재 안 함 → 404."""
         client = _client_with_user(VIEWER, langfuse_client)
         resp = client.get("/api/v1/prompts/none/versions?project_id=default")
@@ -343,9 +309,7 @@ class TestListVersions:
 class TestCreatePrompt:
     """``POST /api/v1/prompts``."""
 
-    def test_user_can_create_new_version(
-        self, langfuse_client: MockLangfuseClient
-    ) -> None:
+    def test_user_can_create_new_version(self, langfuse_client: MockLangfuseClient) -> None:
         """user 권한으로 신규 프롬프트 생성 → 201."""
         client = _client_with_user(USER, langfuse_client)
         resp = client.post(
@@ -364,9 +328,7 @@ class TestCreatePrompt:
         assert body["version"] == 1
         assert "staging" in body["labels"]
 
-    def test_create_increments_version(
-        self, langfuse_client: MockLangfuseClient
-    ) -> None:
+    def test_create_increments_version(self, langfuse_client: MockLangfuseClient) -> None:
         """기존 이름으로 두 번째 호출 → version=2."""
         _seed_three_prompts(langfuse_client)
         client = _client_with_user(USER, langfuse_client)
@@ -381,9 +343,7 @@ class TestCreatePrompt:
         assert resp.status_code == 201
         assert resp.json()["version"] == 3  # seed에 v1, v2 존재
 
-    def test_viewer_cannot_create(
-        self, langfuse_client: MockLangfuseClient
-    ) -> None:
+    def test_viewer_cannot_create(self, langfuse_client: MockLangfuseClient) -> None:
         """viewer 권한 → 403 FORBIDDEN."""
         client = _client_with_user(VIEWER, langfuse_client)
         resp = client.post(
@@ -396,9 +356,7 @@ class TestCreatePrompt:
         )
         assert resp.status_code == 403
 
-    def test_idempotency_key_echoed(
-        self, langfuse_client: MockLangfuseClient
-    ) -> None:
+    def test_idempotency_key_echoed(self, langfuse_client: MockLangfuseClient) -> None:
         """``Idempotency-Key`` 헤더는 응답 헤더로 echo."""
         client = _client_with_user(USER, langfuse_client)
         key = "11111111-2222-3333-4444-555555555555"
@@ -410,9 +368,7 @@ class TestCreatePrompt:
         assert resp.status_code == 201
         assert resp.headers.get("Idempotency-Key") == key
 
-    def test_unknown_project_returns_404(
-        self, langfuse_client: MockLangfuseClient
-    ) -> None:
+    def test_unknown_project_returns_404(self, langfuse_client: MockLangfuseClient) -> None:
         """``project_id`` 미등록 → 404 PROJECT_NOT_FOUND."""
         client = _client_with_user(USER, langfuse_client)
         resp = client.post(
@@ -452,9 +408,7 @@ class TestUpdatePromptLabels:
         assert "production" in body["labels"]
         assert resp.headers.get("ETag")
 
-    def test_admin_with_correct_etag(
-        self, langfuse_client: MockLangfuseClient
-    ) -> None:
+    def test_admin_with_correct_etag(self, langfuse_client: MockLangfuseClient) -> None:
         """admin + 올바른 ETag → 200."""
         _seed_three_prompts(langfuse_client)
         client = _client_with_user(ADMIN, langfuse_client)
@@ -467,9 +421,7 @@ class TestUpdatePromptLabels:
         )
         assert resp.status_code == 200
 
-    def test_etag_mismatch_returns_412(
-        self, langfuse_client: MockLangfuseClient
-    ) -> None:
+    def test_etag_mismatch_returns_412(self, langfuse_client: MockLangfuseClient) -> None:
         """``If-Match`` 불일치 → 412 ETAG_MISMATCH."""
         _seed_three_prompts(langfuse_client)
         client = _client_with_user(ADMIN, langfuse_client)
@@ -481,9 +433,7 @@ class TestUpdatePromptLabels:
         assert resp.status_code == 412
         assert resp.json()["code"] == "ETAG_MISMATCH"
 
-    def test_missing_if_match_returns_412(
-        self, langfuse_client: MockLangfuseClient
-    ) -> None:
+    def test_missing_if_match_returns_412(self, langfuse_client: MockLangfuseClient) -> None:
         """``If-Match`` 헤더 없음 → 412."""
         _seed_three_prompts(langfuse_client)
         client = _client_with_user(ADMIN, langfuse_client)
@@ -493,9 +443,7 @@ class TestUpdatePromptLabels:
         )
         assert resp.status_code == 412
 
-    def test_user_cannot_promote(
-        self, langfuse_client: MockLangfuseClient
-    ) -> None:
+    def test_user_cannot_promote(self, langfuse_client: MockLangfuseClient) -> None:
         """user 권한 → 403 (admin only)."""
         _seed_three_prompts(langfuse_client)
         client = _client_with_user(USER, langfuse_client)
@@ -506,9 +454,7 @@ class TestUpdatePromptLabels:
         )
         assert resp.status_code == 403
 
-    def test_viewer_cannot_promote(
-        self, langfuse_client: MockLangfuseClient
-    ) -> None:
+    def test_viewer_cannot_promote(self, langfuse_client: MockLangfuseClient) -> None:
         """viewer 권한 → 403."""
         client = _client_with_user(VIEWER, langfuse_client)
         resp = client.patch(
@@ -518,9 +464,7 @@ class TestUpdatePromptLabels:
         )
         assert resp.status_code == 403
 
-    def test_unknown_version_returns_404(
-        self, langfuse_client: MockLangfuseClient
-    ) -> None:
+    def test_unknown_version_returns_404(self, langfuse_client: MockLangfuseClient) -> None:
         """존재하지 않는 버전 → 404."""
         _seed_three_prompts(langfuse_client)
         client = _client_with_user(ADMIN, langfuse_client)
@@ -539,12 +483,8 @@ class TestProjectConfigDeps:
 
     def test_valid_project_list(self) -> None:
         """JSON 정상 파싱."""
-        settings = Settings(
-            LABS_PROJECTS_JSON=json.dumps([{"id": "x", "name": "X"}])
-        )
-        configs = [
-            ProjectConfig.model_validate(p) for p in settings.projects()
-        ]
+        settings = Settings(LABS_PROJECTS_JSON=json.dumps([{"id": "x", "name": "X"}]))
+        configs = [ProjectConfig.model_validate(p) for p in settings.projects()]
         assert len(configs) == 1
         assert configs[0].id == "x"
 
@@ -587,9 +527,7 @@ class TestRequireRoleDep:
             ("viewer", "viewer", True),
         ],
     )
-    def test_role_priority_matrix(
-        self, role: RBACRole, required: RBACRole, ok: bool
-    ) -> None:
+    def test_role_priority_matrix(self, role: RBACRole, required: RBACRole, ok: bool) -> None:
         """RBAC 우선순위 매트릭스."""
         from app.core.errors import ForbiddenError
 

@@ -127,9 +127,7 @@ class TestContains:
     @pytest.mark.asyncio
     async def test_contains_OR_mode_no_keyword_present_returns_0(self) -> None:
         ev = ContainsEvaluator()
-        result = await ev.evaluate(
-            "hello", None, {}, keywords=["foo", "bar"], mode="any"
-        )
+        result = await ev.evaluate("hello", None, {}, keywords=["foo", "bar"], mode="any")
         assert result == 0.0
 
     @pytest.mark.asyncio
@@ -147,9 +145,7 @@ class TestContains:
     @pytest.mark.asyncio
     async def test_contains_case_sensitive_when_disabled(self) -> None:
         ev = ContainsEvaluator()
-        result = await ev.evaluate(
-            "FOX", None, {}, keywords=["fox"], ignore_case=False
-        )
+        result = await ev.evaluate("FOX", None, {}, keywords=["fox"], ignore_case=False)
         assert result == 0.0
 
 
@@ -160,9 +156,7 @@ class TestRegexMatch:
     @pytest.mark.asyncio
     async def test_regex_match_search_returns_1(self) -> None:
         ev = RegexMatchEvaluator()
-        result = await ev.evaluate(
-            "phone: 010-1234-5678", None, {}, pattern=r"\d{3}-\d{4}-\d{4}"
-        )
+        result = await ev.evaluate("phone: 010-1234-5678", None, {}, pattern=r"\d{3}-\d{4}-\d{4}")
         assert result == 1.0
 
     @pytest.mark.asyncio
@@ -174,17 +168,13 @@ class TestRegexMatch:
     @pytest.mark.asyncio
     async def test_regex_match_full_match_mode(self) -> None:
         ev = RegexMatchEvaluator()
-        result = await ev.evaluate(
-            "abc123", None, {}, pattern=r"abc", full_match=True
-        )
+        result = await ev.evaluate("abc123", None, {}, pattern=r"abc", full_match=True)
         assert result == 0.0  # search hits but fullmatch fails
 
     @pytest.mark.asyncio
     async def test_regex_match_with_IGNORECASE_flag(self) -> None:
         ev = RegexMatchEvaluator()
-        result = await ev.evaluate(
-            "HELLO", None, {}, pattern="hello", flags="IGNORECASE"
-        )
+        result = await ev.evaluate("HELLO", None, {}, pattern="hello", flags="IGNORECASE")
         assert result == 1.0
 
     @pytest.mark.asyncio
@@ -241,9 +231,7 @@ class TestJsonSchemaMatch:
             "properties": {"name": {"type": "string"}, "age": {"type": "integer"}},
             "required": ["name", "age"],
         }
-        result = await ev.evaluate(
-            '{"name": "Alice", "age": 30}', None, {}, schema=schema
-        )
+        result = await ev.evaluate('{"name": "Alice", "age": 30}', None, {}, schema=schema)
         assert result == 1.0
 
     @pytest.mark.asyncio
@@ -268,9 +256,7 @@ class TestJsonSchemaMatch:
     async def test_json_schema_match_returns_None_for_invalid_schema(self) -> None:
         ev = JsonSchemaMatchEvaluator()
         # 잘못된 type 키워드
-        result = await ev.evaluate(
-            '{"a": 1}', None, {}, schema={"type": 42}
-        )
+        result = await ev.evaluate('{"a": 1}', None, {}, schema={"type": 42})
         assert result is None
 
     @pytest.mark.asyncio
@@ -288,17 +274,13 @@ class TestJsonKeyPresence:
     @pytest.mark.asyncio
     async def test_json_key_presence_all_keys_present_returns_1(self) -> None:
         ev = JsonKeyPresenceEvaluator()
-        result = await ev.evaluate(
-            '{"a": 1, "b": 2}', None, {}, required_keys=["a", "b"]
-        )
+        result = await ev.evaluate('{"a": 1, "b": 2}', None, {}, required_keys=["a", "b"])
         assert result == 1.0
 
     @pytest.mark.asyncio
     async def test_json_key_presence_partial_returns_ratio(self) -> None:
         ev = JsonKeyPresenceEvaluator()
-        result = await ev.evaluate(
-            '{"a": 1}', None, {}, required_keys=["a", "b", "c", "d"]
-        )
+        result = await ev.evaluate('{"a": 1}', None, {}, required_keys=["a", "b", "c", "d"])
         assert result is not None
         assert abs(result - 0.25) < 1e-9
 
@@ -393,17 +375,14 @@ class _StubEmbeddingClient:
         self.calls: list[dict[str, Any]] = []
 
     async def embedding(
-        self, model: str, input: list[str] | str  # noqa: A002
+        self,
+        model: str,
+        input: list[str] | str,  # noqa: A002
     ) -> dict[str, Any]:
         self.calls.append({"model": model, "input": input})
         if self._vectors is None:
             raise RuntimeError("simulated failure")
-        return {
-            "data": [
-                {"embedding": vec, "index": i}
-                for i, vec in enumerate(self._vectors)
-            ]
-        }
+        return {"data": [{"embedding": vec, "index": i} for i, vec in enumerate(self._vectors)]}
 
 
 class TestCosineSimilarity:
@@ -411,9 +390,7 @@ class TestCosineSimilarity:
     async def test_cosine_identical_vectors_return_1_after_rescale(self) -> None:
         ev = CosineSimilarityEvaluator()
         client = _StubEmbeddingClient(vectors=[[1.0, 0.0], [1.0, 0.0]])
-        result = await ev.evaluate(
-            "a", "a", {}, litellm_client=client, model="m"
-        )
+        result = await ev.evaluate("a", "a", {}, litellm_client=client, model="m")
         assert result == 1.0
 
     @pytest.mark.asyncio
@@ -435,9 +412,7 @@ class TestCosineSimilarity:
     async def test_cosine_no_rescale_returns_raw(self) -> None:
         ev = CosineSimilarityEvaluator()
         client = _StubEmbeddingClient(vectors=[[1.0, 0.0], [1.0, 0.0]])
-        result = await ev.evaluate(
-            "a", "a", {}, litellm_client=client, rescale=False
-        )
+        result = await ev.evaluate("a", "a", {}, litellm_client=client, rescale=False)
         assert result == 1.0
 
     @pytest.mark.asyncio
@@ -476,9 +451,7 @@ class TestBleu:
     @pytest.mark.asyncio
     async def test_bleu_completely_different_returns_low(self) -> None:
         ev = BleuEvaluator()
-        result = await ev.evaluate(
-            "alpha beta gamma delta", "one two three four", {}
-        )
+        result = await ev.evaluate("alpha beta gamma delta", "one two three four", {})
         assert result is not None
         assert result < 0.01
 
@@ -486,9 +459,7 @@ class TestBleu:
     async def test_bleu_partial_overlap(self) -> None:
         ev = BleuEvaluator()
         # 일부 unigram 일치
-        result = await ev.evaluate(
-            "the cat sat on mat", "the dog sat on rug", {}
-        )
+        result = await ev.evaluate("the cat sat on mat", "the dog sat on rug", {})
         assert result is not None
         assert 0.0 < result < 1.0
 
@@ -533,9 +504,7 @@ class TestRouge:
     async def test_rouge_partial_subsequence(self) -> None:
         ev = RougeEvaluator()
         # LCS = "the cat sat" (len 3), hyp_len=4, ref_len=5
-        result = await ev.evaluate(
-            "the cat sat down", "the cat sat on mat", {}
-        )
+        result = await ev.evaluate("the cat sat down", "the cat sat on mat", {})
         assert result is not None
         # P=3/4, R=3/5 → F1 = 2*0.75*0.6 / 1.35 ≈ 0.6667
         assert abs(result - (2 * 0.75 * 0.6) / (0.75 + 0.6)) < 1e-9
@@ -558,31 +527,29 @@ class TestLatencyCheck:
     @pytest.mark.asyncio
     async def test_latency_under_threshold_returns_1(self) -> None:
         ev = LatencyCheckEvaluator()
-        result = await ev.evaluate(
-            "x", None, {"latency_ms": 1500}, threshold_ms=2000
-        )
+        result = await ev.evaluate("x", None, {"latency_ms": 1500}, threshold_ms=2000)
         assert result == 1.0
 
     @pytest.mark.asyncio
     async def test_latency_at_threshold_returns_1(self) -> None:
         ev = LatencyCheckEvaluator()
-        result = await ev.evaluate(
-            "x", None, {"latency_ms": 2000}, threshold_ms=2000
-        )
+        result = await ev.evaluate("x", None, {"latency_ms": 2000}, threshold_ms=2000)
         assert result == 1.0
 
     @pytest.mark.asyncio
     async def test_latency_over_threshold_returns_0(self) -> None:
         ev = LatencyCheckEvaluator()
-        result = await ev.evaluate(
-            "x", None, {"latency_ms": 2500}, threshold_ms=2000
-        )
+        result = await ev.evaluate("x", None, {"latency_ms": 2500}, threshold_ms=2000)
         assert result == 0.0
 
     @pytest.mark.asyncio
     async def test_latency_returns_None_when_no_threshold(self) -> None:
         ev = LatencyCheckEvaluator()
-        result = await ev.evaluate("x", None, {"latency_ms": 100}, )
+        result = await ev.evaluate(
+            "x",
+            None,
+            {"latency_ms": 100},
+        )
         assert result is None
 
     @pytest.mark.asyncio
@@ -599,33 +566,25 @@ class TestTokenBudgetCheck:
     @pytest.mark.asyncio
     async def test_token_under_budget_returns_1(self) -> None:
         ev = TokenBudgetCheckEvaluator()
-        result = await ev.evaluate(
-            "x", None, {"output_tokens": 50}, budget=100
-        )
+        result = await ev.evaluate("x", None, {"output_tokens": 50}, budget=100)
         assert result == 1.0
 
     @pytest.mark.asyncio
     async def test_token_over_budget_returns_0(self) -> None:
         ev = TokenBudgetCheckEvaluator()
-        result = await ev.evaluate(
-            "x", None, {"output_tokens": 150}, budget=100
-        )
+        result = await ev.evaluate("x", None, {"output_tokens": 150}, budget=100)
         assert result == 0.0
 
     @pytest.mark.asyncio
     async def test_token_scope_total(self) -> None:
         ev = TokenBudgetCheckEvaluator()
-        result = await ev.evaluate(
-            "x", None, {"total_tokens": 500}, budget=1000, scope="total"
-        )
+        result = await ev.evaluate("x", None, {"total_tokens": 500}, budget=1000, scope="total")
         assert result == 1.0
 
     @pytest.mark.asyncio
     async def test_token_scope_prompt(self) -> None:
         ev = TokenBudgetCheckEvaluator()
-        result = await ev.evaluate(
-            "x", None, {"prompt_tokens": 1500}, budget=1000, scope="prompt"
-        )
+        result = await ev.evaluate("x", None, {"prompt_tokens": 1500}, budget=1000, scope="prompt")
         assert result == 0.0
 
     @pytest.mark.asyncio
@@ -642,25 +601,19 @@ class TestCostCheck:
     @pytest.mark.asyncio
     async def test_cost_under_threshold_returns_1(self) -> None:
         ev = CostCheckEvaluator()
-        result = await ev.evaluate(
-            "x", None, {"cost_usd": 0.001}, threshold_usd=0.01
-        )
+        result = await ev.evaluate("x", None, {"cost_usd": 0.001}, threshold_usd=0.01)
         assert result == 1.0
 
     @pytest.mark.asyncio
     async def test_cost_over_threshold_returns_0(self) -> None:
         ev = CostCheckEvaluator()
-        result = await ev.evaluate(
-            "x", None, {"cost_usd": 0.05}, threshold_usd=0.01
-        )
+        result = await ev.evaluate("x", None, {"cost_usd": 0.05}, threshold_usd=0.01)
         assert result == 0.0
 
     @pytest.mark.asyncio
     async def test_cost_at_threshold_returns_1(self) -> None:
         ev = CostCheckEvaluator()
-        result = await ev.evaluate(
-            "x", None, {"cost_usd": 0.01}, threshold_usd=0.01
-        )
+        result = await ev.evaluate("x", None, {"cost_usd": 0.01}, threshold_usd=0.01)
         assert result == 1.0
 
     @pytest.mark.asyncio

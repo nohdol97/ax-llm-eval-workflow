@@ -125,9 +125,7 @@ class LiteLLMClient:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
                 resp = await client.get(endpoint, headers=self._headers())
             if resp.status_code >= 400:
-                raise LiteLLMError(
-                    detail=f"model_info HTTP {resp.status_code}: {resp.text}"
-                )
+                raise LiteLLMError(detail=f"model_info HTTP {resp.status_code}: {resp.text}")
             payload = resp.json()
         except httpx.HTTPError as exc:
             raise LiteLLMError(detail=f"model_info 호출 실패: {exc}") from exc
@@ -152,13 +150,9 @@ class LiteLLMClient:
         body["stream"] = False
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
-                resp = await client.post(
-                    endpoint, json=body, headers=self._headers()
-                )
+                resp = await client.post(endpoint, json=body, headers=self._headers())
             if resp.status_code >= 400:
-                raise LiteLLMError(
-                    detail=f"completion HTTP {resp.status_code}: {resp.text}"
-                )
+                raise LiteLLMError(detail=f"completion HTTP {resp.status_code}: {resp.text}")
             return dict(resp.json())
         except httpx.HTTPError as exc:
             raise LiteLLMError(detail=f"completion 호출 실패: {exc}") from exc
@@ -176,9 +170,7 @@ class LiteLLMClient:
         body["stream"] = True
 
         async with httpx.AsyncClient(timeout=self._timeout) as client:
-            async with client.stream(
-                "POST", endpoint, json=body, headers=self._headers()
-            ) as resp:
+            async with client.stream("POST", endpoint, json=body, headers=self._headers()) as resp:
                 if resp.status_code >= 400:
                     text = await resp.aread()
                     raise LiteLLMError(
@@ -234,13 +226,9 @@ class LiteLLMClient:
         body = {"model": model, "input": input}
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
-                resp = await client.post(
-                    endpoint, json=body, headers=self._headers()
-                )
+                resp = await client.post(endpoint, json=body, headers=self._headers())
             if resp.status_code >= 400:
-                raise LiteLLMError(
-                    detail=f"embedding HTTP {resp.status_code}: {resp.text}"
-                )
+                raise LiteLLMError(detail=f"embedding HTTP {resp.status_code}: {resp.text}")
             return dict(resp.json())
         except httpx.HTTPError as exc:
             raise LiteLLMError(detail=f"embedding 호출 실패: {exc}") from exc

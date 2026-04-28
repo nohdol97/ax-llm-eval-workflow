@@ -43,18 +43,14 @@ class Settings(BaseSettings):
         description="사내 Langfuse host URL",
     )
     LANGFUSE_PUBLIC_KEY: str = Field(default="", description="Langfuse public key")
-    LANGFUSE_SECRET_KEY: SecretStr = Field(
-        default=SecretStr(""), description="Langfuse secret key"
-    )
+    LANGFUSE_SECRET_KEY: SecretStr = Field(default=SecretStr(""), description="Langfuse secret key")
 
     # ---------- 사내 LiteLLM ----------
     LITELLM_BASE_URL: str = Field(
         default="https://litellm.internal.example.com",
         description="사내 LiteLLM Proxy base URL",
     )
-    LITELLM_VIRTUAL_KEY: SecretStr = Field(
-        default=SecretStr(""), description="LiteLLM Virtual Key"
-    )
+    LITELLM_VIRTUAL_KEY: SecretStr = Field(default=SecretStr(""), description="LiteLLM Virtual Key")
 
     # ---------- ClickHouse (선택, fallback 모드 지원) ----------
     USE_LANGFUSE_PUBLIC_API_FALLBACK: bool = Field(
@@ -65,17 +61,13 @@ class Settings(BaseSettings):
     CLICKHOUSE_PORT: int = Field(default=8443, description="ClickHouse port (HTTPS)")
     CLICKHOUSE_SECURE: bool = Field(default=True, description="ClickHouse TLS 사용")
     CLICKHOUSE_DB: str = Field(default="langfuse", description="ClickHouse 데이터베이스명")
-    CLICKHOUSE_READONLY_USER: str = Field(
-        default="", description="ClickHouse readonly 계정"
-    )
+    CLICKHOUSE_READONLY_USER: str = Field(default="", description="ClickHouse readonly 계정")
     CLICKHOUSE_READONLY_PASSWORD: SecretStr = Field(
         default=SecretStr(""), description="ClickHouse readonly 비밀번호"
     )
 
     # ---------- Redis ----------
-    REDIS_URL: str = Field(
-        default="redis://localhost:6379/0", description="Redis 접속 URL"
-    )
+    REDIS_URL: str = Field(default="redis://localhost:6379/0", description="Redis 접속 URL")
     LABS_REDIS_DB: int = Field(default=0, description="Redis DB 번호")
 
     # ---------- JWT (사내 Auth) ----------
@@ -87,9 +79,7 @@ class Settings(BaseSettings):
     )
 
     # ---------- OpenTelemetry ----------
-    OTEL_EXPORTER_OTLP_ENDPOINT: str = Field(
-        default="", description="OTLP/HTTP exporter endpoint"
-    )
+    OTEL_EXPORTER_OTLP_ENDPOINT: str = Field(default="", description="OTLP/HTTP exporter endpoint")
     OTEL_EXPORTER_OTLP_HEADERS: str = Field(
         default="", description="OTLP exporter 추가 헤더 (key=value,...)"
     )
@@ -103,9 +93,7 @@ class Settings(BaseSettings):
     OTEL_TRACES_SAMPLER: str = Field(
         default="parentbased_traceidratio", description="OTel sampler 이름"
     )
-    OTEL_TRACES_SAMPLER_ARG: float = Field(
-        default=0.1, description="OTel sampler ratio (0.0~1.0)"
-    )
+    OTEL_TRACES_SAMPLER_ARG: float = Field(default=0.1, description="OTel sampler ratio (0.0~1.0)")
 
     # ---------- Prometheus ----------
     LABS_METRICS_ENABLED: bool = Field(
@@ -123,15 +111,9 @@ class Settings(BaseSettings):
     )
 
     # ---------- 동작 ----------
-    LABS_SHUTDOWN_GRACE_SEC: int = Field(
-        default=30, description="graceful shutdown 대기 시간"
-    )
-    LABS_EXPERIMENT_STATE_TTL: int = Field(
-        default=86400, description="실험 상태 Redis TTL (초)"
-    )
-    LABS_HEALTH_CHECK_TIMEOUT_SEC: float = Field(
-        default=3.0, description="헬스 체크 타임아웃 (초)"
-    )
+    LABS_SHUTDOWN_GRACE_SEC: int = Field(default=30, description="graceful shutdown 대기 시간")
+    LABS_EXPERIMENT_STATE_TTL: int = Field(default=86400, description="실험 상태 Redis TTL (초)")
+    LABS_HEALTH_CHECK_TIMEOUT_SEC: float = Field(default=3.0, description="헬스 체크 타임아웃 (초)")
 
     # ---------- CORS ----------
     LABS_CORS_ORIGINS: list[str] = Field(
@@ -159,9 +141,7 @@ class Settings(BaseSettings):
     @property
     def langfuse_configured(self) -> bool:
         """Langfuse 자격증명 설정 여부."""
-        return bool(self.LANGFUSE_PUBLIC_KEY) and bool(
-            self.LANGFUSE_SECRET_KEY.get_secret_value()
-        )
+        return bool(self.LANGFUSE_PUBLIC_KEY) and bool(self.LANGFUSE_SECRET_KEY.get_secret_value())
 
     @property
     def litellm_configured(self) -> bool:
@@ -200,17 +180,13 @@ class Settings(BaseSettings):
         try:
             parsed = json.loads(raw)
         except json.JSONDecodeError as exc:
-            raise ValueError(
-                f"LABS_PROJECTS_JSON 파싱 실패: {exc}"
-            ) from exc
+            raise ValueError(f"LABS_PROJECTS_JSON 파싱 실패: {exc}") from exc
         if not isinstance(parsed, list):
             raise ValueError("LABS_PROJECTS_JSON은 JSON 배열이어야 합니다.")
         result: list[dict[str, Any]] = []
         for entry in parsed:
             if not isinstance(entry, dict):
-                raise ValueError(
-                    "LABS_PROJECTS_JSON 각 항목은 객체(dict)여야 합니다."
-                )
+                raise ValueError("LABS_PROJECTS_JSON 각 항목은 객체(dict)여야 합니다.")
             result.append(dict(entry))
         return result
 

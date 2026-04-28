@@ -69,9 +69,7 @@ class TestInternalHelpers:
 
     def test_chat_프롬프트_system_prepend(self) -> None:
         """chat 프롬프트에도 system prefix 가능."""
-        msgs = _to_messages(
-            [{"role": "user", "content": "Q"}], system_prompt="SYS"
-        )
+        msgs = _to_messages([{"role": "user", "content": "Q"}], system_prompt="SYS")
         assert msgs[0]["role"] == "system"
         assert msgs[1]["role"] == "user"
 
@@ -92,9 +90,7 @@ class TestInternalHelpers:
 
     def test_extract_usage_openai_alias(self) -> None:
         """``prompt_tokens``/``completion_tokens``를 표준화한다."""
-        usage = _extract_usage(
-            {"usage": {"prompt_tokens": 10, "completion_tokens": 20}}
-        )
+        usage = _extract_usage({"usage": {"prompt_tokens": 10, "completion_tokens": 20}})
         assert usage == {
             "input_tokens": 10,
             "output_tokens": 20,
@@ -165,9 +161,7 @@ class TestRunStreaming:
         litellm_client: MockLiteLLMProxy,
     ) -> None:
         """source=langfuse일 때 SDK get_prompt + 변수 치환이 LiteLLM으로 전달."""
-        langfuse_client._seed(
-            prompts=[{"name": "p_test", "body": "Echo: {{text}}", "version": 1}]
-        )
+        langfuse_client._seed(prompts=[{"name": "p_test", "body": "Echo: {{text}}", "version": 1}])
         litellm_client.set_response("ok")
         events: list[dict[str, Any]] = []
         async for ev in runner.run_streaming(
@@ -250,9 +244,7 @@ class TestRunStreaming:
                 "_litellm_cost": 0.0042,
             }
 
-        async def fake_completion(
-            *_args: _Any, **_kwargs: _Any
-        ) -> AsyncIterator[dict[str, _Any]]:
+        async def fake_completion(*_args: _Any, **_kwargs: _Any) -> AsyncIterator[dict[str, _Any]]:
             return custom_stream()
 
         # monkey-patch

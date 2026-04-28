@@ -106,17 +106,10 @@ class TestCalculateWeightedScore:
         assert result == pytest.approx(0.4 / 0.6)
 
     def test_all_None_returns_None(self) -> None:
-        assert (
-            calculate_weighted_score(
-                {"a": None, "b": None}, {"a": 0.5, "b": 0.5}
-            )
-            is None
-        )
+        assert calculate_weighted_score({"a": None, "b": None}, {"a": 0.5, "b": 0.5}) is None
 
     def test_zero_total_weight_returns_None(self) -> None:
-        assert (
-            calculate_weighted_score({"a": 1.0}, {"a": 0.0}) is None
-        )
+        assert calculate_weighted_score({"a": 1.0}, {"a": 0.0}) is None
 
     def test_clamps_out_of_range_score(self) -> None:
         # 1.5는 1.0으로 clamp

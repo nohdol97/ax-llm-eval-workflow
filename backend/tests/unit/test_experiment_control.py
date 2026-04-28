@@ -117,25 +117,19 @@ class TestExperimentControlLegalTransitions:
         # paused_at은 제거되어야 함
         assert "paused_at" not in meta
 
-    async def test_cancel_running(
-        self, redis_client: MockRedisClient, make_control: Any
-    ) -> None:
+    async def test_cancel_running(self, redis_client: MockRedisClient, make_control: Any) -> None:
         await _seed_experiment(redis_client, "e3", status="running")
         control = make_control()
         new_status = await control.cancel("e3", user_id="user-1")
         assert new_status == "cancelled"
 
-    async def test_cancel_paused(
-        self, redis_client: MockRedisClient, make_control: Any
-    ) -> None:
+    async def test_cancel_paused(self, redis_client: MockRedisClient, make_control: Any) -> None:
         await _seed_experiment(redis_client, "e3p", status="paused")
         control = make_control()
         new_status = await control.cancel("e3p", user_id="user-1")
         assert new_status == "cancelled"
 
-    async def test_cancel_pending(
-        self, redis_client: MockRedisClient, make_control: Any
-    ) -> None:
+    async def test_cancel_pending(self, redis_client: MockRedisClient, make_control: Any) -> None:
         await _seed_experiment(redis_client, "e3pe", status="pending")
         control = make_control()
         new_status = await control.cancel("e3pe", user_id="user-1")
@@ -228,9 +222,7 @@ class TestExperimentControlIllegalTransitions:
 # ---------- not found / forbidden ----------
 @pytest.mark.unit
 class TestExperimentControlAccess:
-    async def test_pause_not_found(
-        self, redis_client: MockRedisClient, make_control: Any
-    ) -> None:
+    async def test_pause_not_found(self, redis_client: MockRedisClient, make_control: Any) -> None:
         control = make_control()
         with pytest.raises(ExperimentNotFoundError):
             await control.pause("nope", user_id="user-1")
@@ -247,16 +239,10 @@ class TestExperimentControlAccess:
 # ---------- delete ----------
 @pytest.mark.unit
 class TestExperimentControlDelete:
-    async def test_delete_completed(
-        self, redis_client: MockRedisClient, make_control: Any
-    ) -> None:
-        await _seed_experiment(
-            redis_client, "d1", status="completed", runs=["r1", "r2"]
-        )
+    async def test_delete_completed(self, redis_client: MockRedisClient, make_control: Any) -> None:
+        await _seed_experiment(redis_client, "d1", status="completed", runs=["r1", "r2"])
         # ZSet 멤버도 시드
-        await redis_client._client.zadd(
-            "ax:project:proj-a:experiments", {"d1": 1.0}
-        )
+        await redis_client._client.zadd("ax:project:proj-a:experiments", {"d1": 1.0})
         control = make_control()
         await control.delete("d1", user_id="admin-1")
         # 모든 키가 삭제됐는지 검증
@@ -264,12 +250,7 @@ class TestExperimentControlDelete:
         assert await redis_client._client.exists("ax:experiment:d1:runs") == 0
         assert await redis_client._client.exists("ax:run:d1:r1") == 0
         assert await redis_client._client.exists("ax:run:d1:r2") == 0
-        assert (
-            await redis_client._client.zscore(
-                "ax:project:proj-a:experiments", "d1"
-            )
-            is None
-        )
+        assert await redis_client._client.zscore("ax:project:proj-a:experiments", "d1") is None
 
     async def test_delete_cancelled_ok(
         self, redis_client: MockRedisClient, make_control: Any
@@ -279,9 +260,7 @@ class TestExperimentControlDelete:
         await control.delete("d2", user_id="admin-1")
         assert await redis_client._client.exists("ax:experiment:d2") == 0
 
-    async def test_delete_failed_ok(
-        self, redis_client: MockRedisClient, make_control: Any
-    ) -> None:
+    async def test_delete_failed_ok(self, redis_client: MockRedisClient, make_control: Any) -> None:
         await _seed_experiment(redis_client, "d3", status="failed")
         control = make_control()
         await control.delete("d3", user_id="admin-1")
@@ -298,9 +277,7 @@ class TestExperimentControlDelete:
         # Hash가 살아있는지 확인 (삭제 거부 후 보존)
         assert await redis_client._client.exists(f"ax:experiment:d-{blocked}") == 1
 
-    async def test_delete_not_found(
-        self, redis_client: MockRedisClient, make_control: Any
-    ) -> None:
+    async def test_delete_not_found(self, redis_client: MockRedisClient, make_control: Any) -> None:
         control = make_control()
         with pytest.raises(ExperimentNotFoundError):
             await control.delete("nope", user_id="admin-1")
@@ -320,9 +297,7 @@ class TestETagAndIfMatch:
             "status": "paused",
             "updated_at": "2026-04-12T00:00:00Z",
         }
-        assert ExperimentControl.compute_etag(meta1) != ExperimentControl.compute_etag(
-            meta2
-        )
+        assert ExperimentControl.compute_etag(meta1) != ExperimentControl.compute_etag(meta2)
 
     def test_compute_etag_stable_for_same_input(
         self,
@@ -331,9 +306,7 @@ class TestETagAndIfMatch:
             "status": "running",
             "updated_at": "2026-04-12T00:00:00Z",
         }
-        assert ExperimentControl.compute_etag(meta) == ExperimentControl.compute_etag(
-            meta
-        )
+        assert ExperimentControl.compute_etag(meta) == ExperimentControl.compute_etag(meta)
 
     def test_verify_if_match_pass_on_match(self) -> None:
         etag = '"deadbeef0000cafe"'

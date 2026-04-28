@@ -243,9 +243,7 @@ def viewer_user() -> User:
 
 
 @pytest.fixture
-def search_app(
-    viewer_user: User, redis_client: MockRedisClient
-) -> TestClient:
+def search_app(viewer_user: User, redis_client: MockRedisClient) -> TestClient:
     """search 라우터 + mock 의존성."""
     langfuse = MockLangfuseClient()
     langfuse._seed(
@@ -282,9 +280,7 @@ class TestSearchEndpoint:
         resp = search_app.get("/api/v1/search?q=test%2A")  # *
         assert resp.status_code == 422
 
-    def test_unauthenticated_request_rejected(
-        self, redis_client: MockRedisClient
-    ) -> None:
+    def test_unauthenticated_request_rejected(self, redis_client: MockRedisClient) -> None:
         app = create_app()
         app.dependency_overrides[get_langfuse_client] = lambda: MockLangfuseClient()
         app.dependency_overrides[get_redis_client] = lambda: redis_client

@@ -107,9 +107,7 @@ class TestHealthEndpoint:
         assert body["environment"] == "dev"
         assert "services" in body
 
-    def test_response_includes_seven_services(
-        self, app_with_stubs: TestClient
-    ) -> None:
+    def test_response_includes_seven_services(self, app_with_stubs: TestClient) -> None:
         """응답에 7종 서비스 키가 모두 존재."""
         resp = app_with_stubs.get("/api/v1/health")
         body = resp.json()
@@ -117,26 +115,20 @@ class TestHealthEndpoint:
         expected = {"langfuse", "litellm", "clickhouse", "redis", "prometheus", "otel", "loki"}
         assert names == expected
 
-    def test_unconfigured_prometheus_warns(
-        self, app_with_stubs: TestClient
-    ) -> None:
+    def test_unconfigured_prometheus_warns(self, app_with_stubs: TestClient) -> None:
         """PROMETHEUS_QUERY_URL 미설정 → warn."""
         resp = app_with_stubs.get("/api/v1/health")
         body = resp.json()
         assert body["services"]["prometheus"]["status"] == "warn"
         assert "PROMETHEUS_QUERY_URL" in body["services"]["prometheus"]["detail"]
 
-    def test_unconfigured_otel_warns(
-        self, app_with_stubs: TestClient
-    ) -> None:
+    def test_unconfigured_otel_warns(self, app_with_stubs: TestClient) -> None:
         """OTEL_EXPORTER_OTLP_ENDPOINT 미설정 → warn."""
         resp = app_with_stubs.get("/api/v1/health")
         body = resp.json()
         assert body["services"]["otel"]["status"] == "warn"
 
-    def test_loki_check_relies_on_json_formatter(
-        self, app_with_stubs: TestClient
-    ) -> None:
+    def test_loki_check_relies_on_json_formatter(self, app_with_stubs: TestClient) -> None:
         """Loki 체크는 JSON formatter 활성 여부."""
         resp = app_with_stubs.get("/api/v1/health")
         body = resp.json()
@@ -185,9 +177,7 @@ def _make_services(data: dict[str, str]) -> dict[str, ServiceHealth]:
 class TestHealthErrorState:
     """일부 서비스 error 상황 — 전체 status='down'."""
 
-    def test_redis_error_results_in_down(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_redis_error_results_in_down(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Redis가 error를 반환하면 전체 status='down'."""
         get_settings.cache_clear()
         app = create_app()

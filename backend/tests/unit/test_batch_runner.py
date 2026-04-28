@@ -57,10 +57,7 @@ def _make_request(
     evaluators: list[EvaluatorConfig] | None = None,
 ) -> ExperimentCreate:
     """테스트용 ExperimentCreate 생성 — 기본 2 prompts × 3 models = 6 runs."""
-    prompts = [
-        PromptConfig(name=f"prompt-{i + 1}", version=i + 1)
-        for i in range(prompt_count)
-    ]
+    prompts = [PromptConfig(name=f"prompt-{i + 1}", version=i + 1) for i in range(prompt_count)]
     models = [
         ModelConfig(model=f"model-{chr(ord('a') + i)}", parameters={"temperature": 0.1})
         for i in range(model_count)
@@ -132,13 +129,9 @@ class TestCreateExperiment:
     ) -> None:
         _seed_dataset(langfuse_client, item_count=2)
         # 백그라운드 태스크가 즉시 실행되지 않도록 run_experiment를 패치
-        with patch.object(
-            BatchExperimentRunner, "run_experiment", new_callable=AsyncMock
-        ):
+        with patch.object(BatchExperimentRunner, "run_experiment", new_callable=AsyncMock):
             request = _make_request(prompt_count=2, model_count=3)
-            response = await runner.create_experiment(
-                request=request, user_id="u-1"
-            )
+            response = await runner.create_experiment(request=request, user_id="u-1")
 
         assert response.experiment_id
         assert response.status == "running"
@@ -148,9 +141,7 @@ class TestCreateExperiment:
 
         # Redis Hash 검증
         underlying = _underlying(redis_client)
-        raw = await underlying.hgetall(
-            _full_key(redis_client, _exp_key(response.experiment_id))
-        )
+        raw = await underlying.hgetall(_full_key(redis_client, _exp_key(response.experiment_id)))
         assert raw["status"] == "running"
         assert int(raw["total_runs"]) == 6
         assert int(raw["total_items"]) == 12
@@ -168,13 +159,9 @@ class TestCreateExperiment:
         langfuse_client: MockLangfuseClient,
     ) -> None:
         _seed_dataset(langfuse_client, item_count=3)
-        with patch.object(
-            BatchExperimentRunner, "run_experiment", new_callable=AsyncMock
-        ):
+        with patch.object(BatchExperimentRunner, "run_experiment", new_callable=AsyncMock):
             request = _make_request(prompt_count=2, model_count=2)
-            response = await runner.create_experiment(
-                request=request, user_id="u-1"
-            )
+            response = await runner.create_experiment(request=request, user_id="u-1")
 
         underlying = _underlying(redis_client)
         runs_set = await underlying.smembers(
@@ -197,19 +184,13 @@ class TestCreateExperiment:
         langfuse_client: MockLangfuseClient,
     ) -> None:
         _seed_dataset(langfuse_client, item_count=1)
-        with patch.object(
-            BatchExperimentRunner, "run_experiment", new_callable=AsyncMock
-        ):
+        with patch.object(BatchExperimentRunner, "run_experiment", new_callable=AsyncMock):
             request = _make_request(prompt_count=2, model_count=3)
-            response = await runner.create_experiment(
-                request=request, user_id="u-1"
-            )
+            response = await runner.create_experiment(request=request, user_id="u-1")
         # 모든 (prompt, model) 조합 존재
         combos = {(r.prompt_name, r.model) for r in response.runs}
         expected = {
-            (f"prompt-{i + 1}", f"model-{chr(ord('a') + j)}")
-            for i in range(2)
-            for j in range(3)
+            (f"prompt-{i + 1}", f"model-{chr(ord('a') + j)}") for i in range(2) for j in range(3)
         }
         assert combos == expected
 
@@ -229,9 +210,7 @@ class TestCreateExperiment:
             BatchExperimentRunner, "run_experiment", new_callable=AsyncMock
         ) as mocked:
             request = _make_request(prompt_count=1, model_count=1)
-            response = await runner.create_experiment(
-                request=request, user_id="u-1"
-            )
+            response = await runner.create_experiment(request=request, user_id="u-1")
 
         assert response.status == "queued"
         # run_experiment는 호출되지 않아야 함
@@ -291,9 +270,7 @@ class TestRunExperiment:
     ) -> None:
         _seed_dataset(langfuse_client, item_count=2)
         request = _make_request(prompt_count=1, model_count=1)
-        response = await runner.create_experiment(
-            request=request, user_id="u-1"
-        )
+        response = await runner.create_experiment(request=request, user_id="u-1")
         # 백그라운드 태스크 완료 대기
         for task in list(runner._tasks.values()):
             await task
@@ -307,9 +284,7 @@ class TestRunExperiment:
 
         # 최종 상태 completed
         underlying = _underlying(redis_client)
-        raw = await underlying.hgetall(
-            _full_key(redis_client, _exp_key(response.experiment_id))
-        )
+        raw = await underlying.hgetall(_full_key(redis_client, _exp_key(response.experiment_id)))
         assert raw["status"] == "completed"
         assert int(raw["completed_items"]) == 2
         assert int(raw["failed_items"]) == 0
@@ -326,9 +301,7 @@ class TestRunExperiment:
         litellm_client.set_failure(RuntimeError("LLM down"))
 
         request = _make_request(prompt_count=1, model_count=1, concurrency=2)
-        response = await runner.create_experiment(
-            request=request, user_id="u-1"
-        )
+        response = await runner.create_experiment(request=request, user_id="u-1")
         for task in list(runner._tasks.values()):
             await task
 
@@ -393,9 +366,7 @@ class TestRunExperiment:
         """status=paused이면 새 Run을 시작하지 않음."""
         _seed_dataset(langfuse_client, item_count=1)
         request = _make_request(prompt_count=2, model_count=1)
-        response = await runner.create_experiment(
-            request=request, user_id="u-1"
-        )
+        response = await runner.create_experiment(request=request, user_id="u-1")
 
         # 첫 Run 시작 전에 status를 paused로 변경
         underlying = _underlying(redis_client)
@@ -407,9 +378,7 @@ class TestRunExperiment:
         for task in list(runner._tasks.values()):
             await task
 
-        raw = await underlying.hgetall(
-            _full_key(redis_client, _exp_key(response.experiment_id))
-        )
+        raw = await underlying.hgetall(_full_key(redis_client, _exp_key(response.experiment_id)))
         assert raw["status"] == "paused"
 
 
@@ -455,9 +424,7 @@ class TestSSEStreaming:
         )
         await runner._publish_event("exp-x", "progress", {"completed": 1})
 
-        members = await underlying.zrange(
-            _full_key(redis_client, _exp_events_key("exp-x")), 0, -1
-        )
+        members = await underlying.zrange(_full_key(redis_client, _exp_events_key("exp-x")), 0, -1)
         assert len(members) == 1
 
     async def test_stream_emits_progress_then_complete(
@@ -468,9 +435,7 @@ class TestSSEStreaming:
     ) -> None:
         _seed_dataset(langfuse_client, item_count=1)
         request = _make_request(prompt_count=1, model_count=1)
-        response = await runner.create_experiment(
-            request=request, user_id="u-1"
-        )
+        response = await runner.create_experiment(request=request, user_id="u-1")
         # 실행 완료 대기
         for task in list(runner._tasks.values()):
             await task
@@ -478,7 +443,9 @@ class TestSSEStreaming:
         # 스트림 → 모든 이벤트 누적 후 종료
         events: list[str] = []
         async for chunk in runner.stream_progress(
-            response.experiment_id, last_event_id=0, poll_interval=0.01,
+            response.experiment_id,
+            last_event_id=0,
+            poll_interval=0.01,
             timeout_sec=2.0,
         ):
             events.append(chunk)

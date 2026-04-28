@@ -166,9 +166,7 @@ async def _list_experiment_meta(redis: Any) -> list[dict[str, Any]]:
                     continue
                 seen_ids.add(exp_id)
                 # Hash fetch — RedisClient는 직접 hgetall이 없으므로 underlying 사용
-                underlying = getattr(redis, "underlying", None) or getattr(
-                    redis, "_client", None
-                )
+                underlying = getattr(redis, "underlying", None) or getattr(redis, "_client", None)
                 if underlying is None:
                     continue
                 raw = await underlying.hgetall(key)
@@ -257,9 +255,7 @@ async def search(
             score = _score_match(name, desc or body, q_norm)
             if score == 0.0:
                 continue
-            snippet = _make_snippet(body or desc, q_norm) or _make_snippet(
-                desc, q_norm
-            )
+            snippet = _make_snippet(body or desc, q_norm) or _make_snippet(desc, q_norm)
             results["prompts"].append(
                 SearchResult(
                     type="prompt",

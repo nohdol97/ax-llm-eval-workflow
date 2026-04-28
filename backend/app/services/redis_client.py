@@ -69,9 +69,7 @@ class RedisClient:
     ) -> bool | None:
         """``SET key value [EX][PX][NX|XX]``."""
         try:
-            return await self._client.set(
-                self._full_key(key), value, ex=ex, px=px, nx=nx, xx=xx
-            )
+            return await self._client.set(self._full_key(key), value, ex=ex, px=px, nx=nx, xx=xx)
         except Exception as exc:  # noqa: BLE001
             raise RedisClientError(detail=f"Redis SET 실패: {exc}") from exc
 

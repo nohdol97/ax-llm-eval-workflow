@@ -276,11 +276,7 @@ class TestNonStreaming:
         litellm_client: MockLiteLLMProxy,
     ) -> None:
         """source=langfuse: 등록된 프롬프트가 변수 치환되어 LiteLLM에 전달."""
-        langfuse_client._seed(
-            prompts=[
-                {"name": "p_api", "body": "Hello {{name}}!", "version": 1}
-            ]
-        )
+        langfuse_client._seed(prompts=[{"name": "p_api", "body": "Hello {{name}}!", "version": 1}])
         litellm_client.set_response("done")
         with TestClient(app_with_overrides) as c:
             resp = c.post(

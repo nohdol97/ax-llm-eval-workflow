@@ -126,15 +126,9 @@ def _extract_usage(chunk_or_response: dict[str, Any]) -> dict[str, int] | None:
     if not isinstance(usage, dict):
         return None
     # OpenAI 호환 키 (prompt_tokens / completion_tokens / total_tokens) → 표준화
-    input_tokens = int(
-        usage.get("input_tokens") or usage.get("prompt_tokens") or 0
-    )
-    output_tokens = int(
-        usage.get("output_tokens") or usage.get("completion_tokens") or 0
-    )
-    total_tokens = int(
-        usage.get("total_tokens") or (input_tokens + output_tokens)
-    )
+    input_tokens = int(usage.get("input_tokens") or usage.get("prompt_tokens") or 0)
+    output_tokens = int(usage.get("output_tokens") or usage.get("completion_tokens") or 0)
+    total_tokens = int(usage.get("total_tokens") or (input_tokens + output_tokens))
     return {
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
@@ -257,9 +251,7 @@ class SingleTestRunner:
 
         try:
             # 1) prompt 해석
-            raw_prompt, compiled_prompt = self._resolve_prompt(
-                prompt_source, variables
-            )
+            raw_prompt, compiled_prompt = self._resolve_prompt(prompt_source, variables)
             messages = _to_messages(compiled_prompt, system_prompt=system_prompt)
 
             # 2) Langfuse trace 생성
@@ -382,17 +374,11 @@ class SingleTestRunner:
                 }
 
         except (LiteLLMError, LangfuseError) as exc:
-            code = (
-                "LLM_ERROR"
-                if isinstance(exc, LiteLLMError)
-                else "LANGFUSE_ERROR"
-            )
+            code = "LLM_ERROR" if isinstance(exc, LiteLLMError) else "LANGFUSE_ERROR"
             yield self._error_event(code=code, message=str(exc), trace_id=trace_id)
             await self._mark_trace_error(trace_id, exc)
         except (ValueError, TypeError) as exc:
-            yield self._error_event(
-                code="VALIDATION_ERROR", message=str(exc), trace_id=trace_id
-            )
+            yield self._error_event(code="VALIDATION_ERROR", message=str(exc), trace_id=trace_id)
             await self._mark_trace_error(trace_id, exc)
         except LabsError as exc:
             yield self._error_event(
@@ -441,9 +427,7 @@ class SingleTestRunner:
         trace_id: str | None = None
 
         try:
-            raw_prompt, compiled_prompt = self._resolve_prompt(
-                prompt_source, variables
-            )
+            raw_prompt, compiled_prompt = self._resolve_prompt(prompt_source, variables)
             messages = _to_messages(compiled_prompt, system_prompt=system_prompt)
 
             trace_id = self._langfuse.create_trace(
@@ -473,9 +457,7 @@ class SingleTestRunner:
             assert isinstance(response, dict)
             output_text = ""
             try:
-                output_text = (
-                    response["choices"][0]["message"]["content"] or ""
-                )
+                output_text = response["choices"][0]["message"]["content"] or ""
             except (KeyError, IndexError, TypeError):
                 output_text = ""
 

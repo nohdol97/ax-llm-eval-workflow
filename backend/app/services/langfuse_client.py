@@ -60,9 +60,7 @@ class LangfuseClient:
             from langfuse import Langfuse
         except ImportError as exc:  # pragma: no cover
             self._sdk_init_failed = True
-            raise LangfuseError(
-                detail=f"langfuse SDK import 실패: {exc}"
-            ) from exc
+            raise LangfuseError(detail=f"langfuse SDK import 실패: {exc}") from exc
 
         try:
             self._sdk = Langfuse(
@@ -72,9 +70,7 @@ class LangfuseClient:
             )
         except Exception as exc:  # noqa: BLE001
             self._sdk_init_failed = True
-            raise LangfuseError(
-                detail=f"Langfuse SDK 인스턴스화 실패: {exc}"
-            ) from exc
+            raise LangfuseError(detail=f"Langfuse SDK 인스턴스화 실패: {exc}") from exc
 
         return self._sdk
 
@@ -91,9 +87,7 @@ class LangfuseClient:
         try:
             return sdk.get_prompt(name=name, version=version, label=label)
         except Exception as exc:  # noqa: BLE001
-            raise LangfuseError(
-                detail=f"get_prompt 실패: name={name!r} ({exc})"
-            ) from exc
+            raise LangfuseError(detail=f"get_prompt 실패: name={name!r} ({exc})") from exc
 
     @_retry_policy
     def create_prompt(
@@ -117,9 +111,7 @@ class LangfuseClient:
                 type=prompt_type,
             )
         except Exception as exc:  # noqa: BLE001
-            raise LangfuseError(
-                detail=f"create_prompt 실패: name={name!r} ({exc})"
-            ) from exc
+            raise LangfuseError(detail=f"create_prompt 실패: name={name!r} ({exc})") from exc
 
     @_retry_policy
     def update_prompt_labels(
@@ -131,9 +123,7 @@ class LangfuseClient:
         """프롬프트 라벨 업데이트 (승격)."""
         sdk = self._get_sdk()
         try:
-            return sdk.update_prompt_labels(
-                name=name, version=version, labels=labels
-            )
+            return sdk.update_prompt_labels(name=name, version=version, labels=labels)
         except AttributeError:
             # SDK 구버전 호환 — fallback
             return sdk.update_prompt(name=name, version=version, labels=labels)
@@ -153,13 +143,9 @@ class LangfuseClient:
         """데이터셋 생성."""
         sdk = self._get_sdk()
         try:
-            return sdk.create_dataset(
-                name=name, description=description, metadata=metadata or {}
-            )
+            return sdk.create_dataset(name=name, description=description, metadata=metadata or {})
         except Exception as exc:  # noqa: BLE001
-            raise LangfuseError(
-                detail=f"create_dataset 실패: name={name!r} ({exc})"
-            ) from exc
+            raise LangfuseError(detail=f"create_dataset 실패: name={name!r} ({exc})") from exc
 
     @_retry_policy
     def get_dataset(self, name: str) -> Any:
@@ -168,9 +154,7 @@ class LangfuseClient:
         try:
             return sdk.get_dataset(name=name)
         except Exception as exc:  # noqa: BLE001
-            raise LangfuseError(
-                detail=f"get_dataset 실패: name={name!r} ({exc})"
-            ) from exc
+            raise LangfuseError(detail=f"get_dataset 실패: name={name!r} ({exc})") from exc
 
     @_retry_policy
     def create_dataset_item(
@@ -218,9 +202,7 @@ class LangfuseClient:
             trace_id = getattr(trace, "id", None) or str(trace)
             return str(trace_id)
         except Exception as exc:  # noqa: BLE001
-            raise LangfuseError(
-                detail=f"create_trace 실패: name={name!r} ({exc})"
-            ) from exc
+            raise LangfuseError(detail=f"create_trace 실패: name={name!r} ({exc})") from exc
 
     @_retry_policy
     def create_generation(
@@ -336,9 +318,7 @@ class LangfuseClient:
             with httpx.Client(timeout=10.0) as client:
                 resp = client.post(endpoint, json=payload, auth=auth)
         except httpx.HTTPError as exc:
-            raise LangfuseError(
-                detail=f"register_score_config(REST) 실패: {exc}"
-            ) from exc
+            raise LangfuseError(detail=f"register_score_config(REST) 실패: {exc}") from exc
 
         if resp.status_code == 409:
             # 이미 존재 → idempotent

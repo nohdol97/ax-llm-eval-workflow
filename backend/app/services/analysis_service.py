@@ -408,9 +408,7 @@ class AnalysisService:
             "project_id": project_id,
             "run_name": run_name,
         }
-        stats_rows = await self._ch.query(
-            LATENCY_STATS_QUERY, parameters=stats_params
-        )
+        stats_rows = await self._ch.query(LATENCY_STATS_QUERY, parameters=stats_params)
 
         avg_v = stddev_v = p50_v = p90_v = p99_v = None
         max_v: float = 0.0
@@ -434,9 +432,7 @@ class AnalysisService:
             "bins": bins,
             "bin_width": bin_width,
         }
-        dist_rows = await self._ch.query(
-            LATENCY_DISTRIBUTION_QUERY, parameters=dist_params
-        )
+        dist_rows = await self._ch.query(LATENCY_DISTRIBUTION_QUERY, parameters=dist_params)
 
         bin_counts: dict[int, int] = dict.fromkeys(range(bins), 0)
         for row in dist_rows:

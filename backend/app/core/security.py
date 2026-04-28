@@ -200,9 +200,7 @@ def _claims_to_user(claims: dict[str, Any]) -> User:
         raise AuthError(detail="토큰에 sub 클레임이 없습니다.")
     role = _extract_role(claims)
     groups_claim = claims.get("groups", [])
-    groups = (
-        [str(g) for g in groups_claim] if isinstance(groups_claim, list) else []
-    )
+    groups = [str(g) for g in groups_claim] if isinstance(groups_claim, list) else []
     return User(
         id=str(sub),
         email=claims.get("email"),
@@ -243,9 +241,7 @@ def require_role(
 
     def _checker(current_user: User = Depends(get_current_user)) -> User:
         if not current_user.has_role(role):
-            raise ForbiddenError(
-                detail=f"권한 부족: required={role}, actual={current_user.role}"
-            )
+            raise ForbiddenError(detail=f"권한 부족: required={role}, actual={current_user.role}")
         return current_user
 
     return _checker

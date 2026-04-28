@@ -150,9 +150,7 @@ class MockLangfuseClient:
         if label is not None:
             key = (name, label)
             if key not in self._prompt_labels:
-                raise LangfuseNotFoundError(
-                    f"prompt name={name!r} label={label!r} not found"
-                )
+                raise LangfuseNotFoundError(f"prompt name={name!r} label={label!r} not found")
             version = self._prompt_labels[key]
 
         if version is None:
@@ -163,9 +161,7 @@ class MockLangfuseClient:
             version = max(versions)
 
         if (name, version) not in self._prompts:
-            raise LangfuseNotFoundError(
-                f"prompt name={name!r} version={version} not found"
-            )
+            raise LangfuseNotFoundError(f"prompt name={name!r} version={version} not found")
         return self._prompts[(name, version)]
 
     def create_prompt(
@@ -202,9 +198,7 @@ class MockLangfuseClient:
     ) -> MockPrompt:
         """프롬프트 라벨 업데이트 (승격용)."""
         if (name, version) not in self._prompts:
-            raise LangfuseNotFoundError(
-                f"prompt name={name!r} version={version} not found"
-            )
+            raise LangfuseNotFoundError(f"prompt name={name!r} version={version} not found")
         p = self._prompts[(name, version)]
         # 기존 라벨 → 다른 버전이 가지고 있을 수 있으므로 새 라벨만 추가
         for lbl in labels:

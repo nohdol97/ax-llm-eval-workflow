@@ -227,6 +227,7 @@ def _seed_items(mock_ch: MockClickHouseClient) -> None:
             },
         ],
     )
+
     # ITEM_SCORES_QUERY — INNER JOIN scores AS s
     def _row(item: str, run: str, value: float) -> dict[str, Any]:
         return {
@@ -535,33 +536,23 @@ class TestLatencyDistribution:
         self, service: AnalysisService, mock_ch: MockClickHouseClient
     ) -> None:
         """ClickHouse에서 데이터 없을 때 None 통계."""
-        mock_ch.register_response(
-            r"avg\(o\.latency\)\s+AS\s+avg_latency_ms", []
-        )
+        mock_ch.register_response(r"avg\(o\.latency\)\s+AS\s+avg_latency_ms", [])
         mock_ch.register_response(r"GROUP\s+BY\s+bin_index", [])
 
-        result = await service.latency_distribution(
-            project_id="p1", run_name="run_x", bins=10
-        )
+        result = await service.latency_distribution(project_id="p1", run_name="run_x", bins=10)
         assert result.p50 is None
         assert result.count == 0
         assert len(result.bins) == 10
         assert all(b.count == 0 for b in result.bins)
 
-    async def test_invalid_bins_raises(
-        self, service: AnalysisService
-    ) -> None:
+    async def test_invalid_bins_raises(self, service: AnalysisService) -> None:
         with pytest.raises(ValueError):
-            await service.latency_distribution(
-                project_id="p", run_name="r", bins=1
-            )
+            await service.latency_distribution(project_id="p", run_name="r", bins=1)
 
     async def test_passes_run_name_param(
         self, service: AnalysisService, mock_ch: MockClickHouseClient
     ) -> None:
-        await service.latency_distribution(
-            project_id="p1", run_name="my_run", bins=10
-        )
+        await service.latency_distribution(project_id="p1", run_name="my_run", bins=10)
         executed = mock_ch._get_executed_queries()
         for _sql, params in executed:
             assert params.get("run_name") == "my_run"
@@ -595,9 +586,7 @@ class TestCostDistribution:
                 },
             ],
         )
-        result = await service.cost_distribution(
-            project_id="p1", run_names=["run_a", "run_b"]
-        )
+        result = await service.cost_distribution(project_id="p1", run_names=["run_a", "run_b"])
         assert "run_a" in result.runs
         assert result.runs["run_a"].model_cost == pytest.approx(0.8)
         assert result.runs["run_a"].eval_cost == pytest.approx(0.2)
@@ -618,9 +607,7 @@ class TestCostDistribution:
                 }
             ],
         )
-        result = await service.cost_distribution(
-            project_id="p1", run_names=["run_a", "run_b"]
-        )
+        result = await service.cost_distribution(project_id="p1", run_names=["run_a", "run_b"])
         assert "run_b" in result.runs
         assert result.runs["run_b"].model_cost == 0.0
         assert result.runs["run_b"].total_cost == 0.0
@@ -639,15 +626,11 @@ class TestSecurityInvariants:
         """모든 분석 메서드를 호출 후 SQL에 f-string 잔재가 없는지 검증."""
         mock_ch.register_response(r".*", [])
         await service.compare_runs(project_id="p", run_names=["a", "b"])
-        await service.compare_items(
-            project_id="p", run_names=["a", "b"], score_name="acc"
-        )
+        await service.compare_items(project_id="p", run_names=["a", "b"], score_name="acc")
         await service.score_distribution(
             project_id="p", run_names=["a", "b"], score_name="acc", bins=10
         )
-        await service.latency_distribution(
-            project_id="p", run_name="a", bins=10
-        )
+        await service.latency_distribution(project_id="p", run_name="a", bins=10)
         await service.cost_distribution(project_id="p", run_names=["a", "b"])
 
         unsafe_re = re.compile(r"\{[a-zA-Z_]\w*\}(?!:)")  # f-string {var} 단독

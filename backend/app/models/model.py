@@ -39,9 +39,7 @@ class ModelInfo(BaseModel):
         0.0,
         description="입력 1K 토큰당 비용 (USD). LiteLLM은 토큰당 비용을 노출하므로 ×1000 환산.",
     )
-    output_cost_per_k: float = Field(
-        0.0, description="출력 1K 토큰당 비용 (USD)."
-    )
+    output_cost_per_k: float = Field(0.0, description="출력 1K 토큰당 비용 (USD).")
     capabilities: list[str] = Field(
         default_factory=list,
         description="능력 태그 (``streaming``, ``function_calling``, ``vision`` 등)",
@@ -56,9 +54,7 @@ class ProviderGroup(BaseModel):
 
     id: ProviderID = Field(..., description="프로바이더 ID")
     name: str = Field(..., description="프로바이더 표시명")
-    models: list[ModelInfo] = Field(
-        default_factory=list, description="해당 프로바이더의 모델 목록"
-    )
+    models: list[ModelInfo] = Field(default_factory=list, description="해당 프로바이더의 모델 목록")
 
 
 class ModelListResponse(BaseModel):

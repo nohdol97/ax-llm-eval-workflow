@@ -38,6 +38,10 @@ export function useSSE<T = unknown>(options: UseSSEOptions<T>): void {
   const handlerRef = useRef<UseSSEOptions<T>>(options);
   handlerRef.current = options;
 
+  // query 객체는 매 render마다 새 reference를 만들 수 있으므로
+  // 직렬화한 문자열을 deps key로 사용해 안정화한다.
+  const queryKey = JSON.stringify(options.query ?? {});
+
   useEffect(() => {
     if (!options.url || options.enabled === false) return;
     if (config.useMock) {
@@ -61,13 +65,10 @@ export function useSSE<T = unknown>(options: UseSSEOptions<T>): void {
       handler,
     );
     return () => unsubscribe();
+    // queryKey는 deps 안정화용 직렬화 결과. effect 본문에서는 사용하지 않으므로
+    // 의존성 누락 경고를 회피하기 위해 명시적 disable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    options.url,
-    options.enabled,
-    options.lastEventId,
-    JSON.stringify(options.query ?? {}),
-  ]);
+  }, [options.url, options.enabled, options.lastEventId, queryKey]);
 }
 
 // ─────────────────────────────────────────────────────────────────────

@@ -28,9 +28,7 @@ from tests.fixtures.mock_langfuse import MockLangfuseClient
 pytestmark = pytest.mark.unit
 
 
-def _ev(
-    name: str, weight: float = 1.0, type_: str = "builtin", **config: Any
-) -> EvaluatorConfig:
+def _ev(name: str, weight: float = 1.0, type_: str = "builtin", **config: Any) -> EvaluatorConfig:
     return EvaluatorConfig(type=type_, name=name, weight=weight, config=config)
 
 
@@ -58,9 +56,7 @@ class TestPipelineSingleEvaluator:
         self, langfuse_client: MockLangfuseClient
     ) -> None:
         pipeline = EvaluationPipeline(langfuse=langfuse_client)
-        scores = await pipeline.evaluate_item(
-            evaluators=[], output="x", expected=None, metadata={}
-        )
+        scores = await pipeline.evaluate_item(evaluators=[], output="x", expected=None, metadata={})
         assert scores == {}
 
 
@@ -117,9 +113,7 @@ class TestPipelineMultiple:
             _ev("exact_match", weight=0.7),
             _ev("contains", weight=0.3, keywords=["x"]),
         ]
-        scores = await pipeline.evaluate_item(
-            evaluators=evs, output="x", expected="x", metadata={}
-        )
+        scores = await pipeline.evaluate_item(evaluators=evs, output="x", expected="x", metadata={})
         # exact=1.0, contains=1.0 → 0.7+0.3 = 1.0
         assert scores[WEIGHTED_SCORE_NAME] == 1.0
 
@@ -157,14 +151,10 @@ class _OkJudgeRunner:
 
 class TestPipelineErrors:
     @pytest.mark.asyncio
-    async def test_unknown_builtin_returns_None(
-        self, langfuse_client: MockLangfuseClient
-    ) -> None:
+    async def test_unknown_builtin_returns_None(self, langfuse_client: MockLangfuseClient) -> None:
         pipeline = EvaluationPipeline(langfuse=langfuse_client)
         evs = [_ev("nonexistent_evaluator")]
-        scores = await pipeline.evaluate_item(
-            evaluators=evs, output="x", expected="x", metadata={}
-        )
+        scores = await pipeline.evaluate_item(evaluators=evs, output="x", expected="x", metadata={})
         assert scores["nonexistent_evaluator"] is None
         assert scores[WEIGHTED_SCORE_NAME] is None
 
@@ -177,36 +167,26 @@ class TestPipelineErrors:
         pipeline._judge_runner = None  # type: ignore[assignment]
 
         evs = [_ev("test_judge", type_="judge")]
-        scores = await pipeline.evaluate_item(
-            evaluators=evs, output="x", expected="x", metadata={}
-        )
+        scores = await pipeline.evaluate_item(evaluators=evs, output="x", expected="x", metadata={})
         assert scores["test_judge"] is None
 
     @pytest.mark.asyncio
     async def test_custom_runner_missing_returns_None(
         self, langfuse_client: MockLangfuseClient
     ) -> None:
-        pipeline = EvaluationPipeline(
-            langfuse=langfuse_client, custom_code_runner=None
-        )
+        pipeline = EvaluationPipeline(langfuse=langfuse_client, custom_code_runner=None)
         pipeline._custom_runner = None  # type: ignore[assignment]
         evs = [_ev("custom1", type_="approved")]
-        scores = await pipeline.evaluate_item(
-            evaluators=evs, output="x", expected="x", metadata={}
-        )
+        scores = await pipeline.evaluate_item(evaluators=evs, output="x", expected="x", metadata={})
         assert scores["custom1"] is None
 
     @pytest.mark.asyncio
     async def test_judge_runner_failure_returns_None(
         self, langfuse_client: MockLangfuseClient
     ) -> None:
-        pipeline = EvaluationPipeline(
-            langfuse=langfuse_client, judge_runner=_FailingJudgeRunner()
-        )
+        pipeline = EvaluationPipeline(langfuse=langfuse_client, judge_runner=_FailingJudgeRunner())
         evs = [_ev("judgeA", type_="judge")]
-        scores = await pipeline.evaluate_item(
-            evaluators=evs, output="x", expected="x", metadata={}
-        )
+        scores = await pipeline.evaluate_item(evaluators=evs, output="x", expected="x", metadata={})
         assert scores["judgeA"] is None
 
     @pytest.mark.asyncio
@@ -214,13 +194,9 @@ class TestPipelineErrors:
         self, langfuse_client: MockLangfuseClient
     ) -> None:
         runner = _OkJudgeRunner(value=0.8)
-        pipeline = EvaluationPipeline(
-            langfuse=langfuse_client, judge_runner=runner
-        )
+        pipeline = EvaluationPipeline(langfuse=langfuse_client, judge_runner=runner)
         evs = [_ev("judgeA", type_="judge")]
-        scores = await pipeline.evaluate_item(
-            evaluators=evs, output="x", expected="x", metadata={}
-        )
+        scores = await pipeline.evaluate_item(evaluators=evs, output="x", expected="x", metadata={})
         assert scores["judgeA"] == 0.8
         assert len(runner.calls) == 1
 
@@ -235,9 +211,7 @@ class TestPipelineErrors:
             timeout_sec=0.05,  # 50ms
         )
         evs = [_ev("slow_judge", type_="judge")]
-        scores = await pipeline.evaluate_item(
-            evaluators=evs, output="x", expected="x", metadata={}
-        )
+        scores = await pipeline.evaluate_item(evaluators=evs, output="x", expected="x", metadata={})
         assert scores["slow_judge"] is None
         assert scores[WEIGHTED_SCORE_NAME] is None
 
@@ -251,9 +225,7 @@ class TestPipelineErrors:
             _ev("exact_match", weight=0.4),
             _ev("contains", weight=0.4, keywords=["x"]),
         ]
-        scores = await pipeline.evaluate_item(
-            evaluators=evs, output="x", expected="x", metadata={}
-        )
+        scores = await pipeline.evaluate_item(evaluators=evs, output="x", expected="x", metadata={})
         # 개별 score는 정상 계산
         assert scores["exact_match"] == 1.0
         assert scores["contains"] == 1.0
@@ -363,7 +335,9 @@ class TestPipelineStaticHelpers:
 # --------------------------------------------------------------------------- #
 class _StubEmbeddingClient:
     async def embedding(
-        self, model: str, input: list[str] | str  # noqa: A002
+        self,
+        model: str,
+        input: list[str] | str,  # noqa: A002
     ) -> dict[str, Any]:
         return {
             "data": [

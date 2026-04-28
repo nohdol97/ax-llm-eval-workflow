@@ -46,9 +46,7 @@ def _validate_sql(sql: str) -> None:
     - 파라미터화 미적용 패턴 차단
     """
     if _WRITE_VERBS.search(sql):
-        raise ClickHouseSecurityError(
-            detail=f"쓰기 SQL은 허용되지 않습니다: {sql[:120]!r}"
-        )
+        raise ClickHouseSecurityError(detail=f"쓰기 SQL은 허용되지 않습니다: {sql[:120]!r}")
     for pat in _UNSAFE_PATTERNS:
         if pat.search(sql):
             raise ClickHouseSecurityError(
@@ -82,16 +80,12 @@ class ClickHouseClient:
             return self._client
         if not self._settings.clickhouse_configured:
             raise ClickHouseError(
-                detail=(
-                    "ClickHouse 미설정 — CLICKHOUSE_HOST / CLICKHOUSE_READONLY_USER 필요"
-                )
+                detail=("ClickHouse 미설정 — CLICKHOUSE_HOST / CLICKHOUSE_READONLY_USER 필요")
             )
         try:
             import clickhouse_connect
         except ImportError as exc:  # pragma: no cover
-            raise ClickHouseError(
-                detail=f"clickhouse_connect import 실패: {exc}"
-            ) from exc
+            raise ClickHouseError(detail=f"clickhouse_connect import 실패: {exc}") from exc
 
         try:
             self._client = await clickhouse_connect.get_async_client(
@@ -103,9 +97,7 @@ class ClickHouseClient:
                 secure=self._settings.CLICKHOUSE_SECURE,
             )
         except Exception as exc:  # noqa: BLE001
-            raise ClickHouseError(
-                detail=f"ClickHouse 연결 실패: {exc}"
-            ) from exc
+            raise ClickHouseError(detail=f"ClickHouse 연결 실패: {exc}") from exc
 
         return self._client
 
@@ -121,9 +113,7 @@ class ClickHouseClient:
         try:
             result = await client.query(sql_with_limit, parameters=parameters or {})
         except Exception as exc:  # noqa: BLE001
-            raise ClickHouseError(
-                detail=f"ClickHouse 쿼리 실패: {exc}"
-            ) from exc
+            raise ClickHouseError(detail=f"ClickHouse 쿼리 실패: {exc}") from exc
         # clickhouse_connect AsyncClient 결과 → named_results
         rows = getattr(result, "named_results", None)
         if callable(rows):

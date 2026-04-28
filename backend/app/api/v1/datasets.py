@@ -127,9 +127,7 @@ async def list_dataset_items_endpoint(
         raise
     sliced, total = paginate(raw, page, page_size)
     items = [to_dataset_item_model(r) for r in sliced]
-    return DatasetItemListResponse(
-        items=items, total=total, page=page, page_size=page_size
-    )
+    return DatasetItemListResponse(items=items, total=total, page=page, page_size=page_size)
 
 
 # ---------- 3) 업로드 (비동기) ----------
@@ -167,8 +165,7 @@ async def upload_dataset_endpoint(
     if len(content) > MAX_FILE_SIZE_BYTES:
         raise FileTooLargeError(
             detail=(
-                f"파일 크기 {len(content)} bytes가 제한 {MAX_FILE_SIZE_BYTES} bytes를"
-                " 초과했습니다."
+                f"파일 크기 {len(content)} bytes가 제한 {MAX_FILE_SIZE_BYTES} bytes를 초과했습니다."
             )
         )
 
@@ -178,9 +175,7 @@ async def upload_dataset_endpoint(
 
         mapping_dict = _json.loads(mapping)
     except _json.JSONDecodeError as exc:
-        raise DatasetValidationError(
-            detail=f"mapping JSON 파싱 실패: {exc.msg}"
-        ) from exc
+        raise DatasetValidationError(detail=f"mapping JSON 파싱 실패: {exc.msg}") from exc
     try:
         mapping_obj = UploadMappingRequest.model_validate(mapping_dict)
     except Exception as exc:  # noqa: BLE001
@@ -240,8 +235,7 @@ async def upload_preview_endpoint(
     if len(content) > MAX_FILE_SIZE_BYTES:
         raise FileTooLargeError(
             detail=(
-                f"파일 크기 {len(content)} bytes가 제한 {MAX_FILE_SIZE_BYTES} bytes를"
-                " 초과했습니다."
+                f"파일 크기 {len(content)} bytes가 제한 {MAX_FILE_SIZE_BYTES} bytes를 초과했습니다."
             )
         )
 
@@ -251,15 +245,11 @@ async def upload_preview_endpoint(
         mapping_dict = _json.loads(mapping)
         mapping_obj = UploadMappingRequest.model_validate(mapping_dict)
     except _json.JSONDecodeError as exc:
-        raise DatasetValidationError(
-            detail=f"mapping JSON 파싱 실패: {exc.msg}"
-        ) from exc
+        raise DatasetValidationError(detail=f"mapping JSON 파싱 실패: {exc.msg}") from exc
     except Exception as exc:  # noqa: BLE001
         raise DatasetValidationError(detail=f"mapping 검증 실패: {exc}") from exc
 
-    columns, items, total_rows = preview_file(
-        content, file.filename or "upload.csv", mapping_obj
-    )
+    columns, items, total_rows = preview_file(content, file.filename or "upload.csv", mapping_obj)
     return PreviewResponse(columns=columns, preview=items, total_rows=total_rows)
 
 
@@ -288,11 +278,7 @@ async def upload_stream_endpoint(
     if user.role != "admin" and owner is not None and owner != user.id:
         raise HTTPException(status_code=404, detail="upload_id not found")
 
-    return await sse_response(
-        stream_upload_progress(
-            upload_id, redis, last_event_id=last_event_id
-        )
-    )
+    return await sse_response(stream_upload_progress(upload_id, redis, last_event_id=last_event_id))
 
 
 # ---------- 6) from-items: 실패 아이템 → 새 데이터셋 ----------
@@ -337,9 +323,7 @@ async def from_items_endpoint(
     source_items: list[dict] = []
     try:
         # 우선 동일 이름의 source dataset이 있을 가능성 시도
-        source_items = list_dataset_items_via_client(
-            langfuse, payload.source_experiment_id
-        )
+        source_items = list_dataset_items_via_client(langfuse, payload.source_experiment_id)
     except DatasetNotFoundError:
         source_items = []
 
@@ -420,19 +404,13 @@ def _compute_dataset_etag(ds: dict) -> str:
     """데이터셋 메타로부터 16자리 sha256 prefix ETag 생성."""
     import hashlib
 
-    src = (
-        f"{ds.get('name')}|"
-        f"{ds.get('item_count')}|"
-        f"{ds.get('created_at')}"
-    )
+    src = f"{ds.get('name')}|{ds.get('item_count')}|{ds.get('created_at')}"
     digest = hashlib.sha256(src.encode("utf-8")).hexdigest()
     return digest[:16]
 
 
 # ---------- Idempotency 헬퍼 ----------
-async def _idempotency_get(
-    redis: RedisClient, user_id: str, key: str
-) -> UploadInitResponse | None:
+async def _idempotency_get(redis: RedisClient, user_id: str, key: str) -> UploadInitResponse | None:
     """업로드 idempotency 캐시 조회."""
     raw = await redis.get(_idem_key(user_id, key))
     if raw is None:
@@ -495,5 +473,3 @@ async def _idempotency_set_response(
 def _idem_key(user_id: str, key: str) -> str:
     """``ax:idem:{user_id}:{key}``."""
     return f"idem:{user_id}:{key}"
-
-

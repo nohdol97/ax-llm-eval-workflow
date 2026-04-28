@@ -30,9 +30,7 @@ class SearchResult(BaseModel):
         None,
         description="매칭 컨텍스트 (None이면 이름 매칭 only)",
     )
-    score: float = Field(
-        ..., description="단순 매칭 점수 (1.0 exact / 0.8 name / 0.6 description)"
-    )
+    score: float = Field(..., description="단순 매칭 점수 (1.0 exact / 0.8 name / 0.6 description)")
 
 
 class SearchResponse(BaseModel):

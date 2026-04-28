@@ -225,9 +225,7 @@ class TestLifecycle:
         assert len(subproc.calls) >= 1
         assert subproc.calls[0][:2] == ["docker", "run"]
 
-    async def test_aexit는_kill과_rm을_호출한다(
-        self, subproc: SubprocessRecorder
-    ) -> None:
+    async def test_aexit는_kill과_rm을_호출한다(self, subproc: SubprocessRecorder) -> None:
         subproc.queue(FakeProcess(stdout=b"cid-xyz\n"))
         # kill, rm 응답
         subproc.queue(FakeProcess(stdout=b""), FakeProcess(stdout=b""))
@@ -241,20 +239,14 @@ class TestLifecycle:
         assert ["docker", "kill"] in commands
         assert ["docker", "rm"] in commands
 
-    async def test_run_실패시_SandboxStartupError(
-        self, subproc: SubprocessRecorder
-    ) -> None:
-        subproc.queue(
-            FakeProcess(stdout=b"", stderr=b"image not found", returncode=125)
-        )
+    async def test_run_실패시_SandboxStartupError(self, subproc: SubprocessRecorder) -> None:
+        subproc.queue(FakeProcess(stdout=b"", stderr=b"image not found", returncode=125))
         evaluator = CustomCodeEvaluator(code="def evaluate(o,e,m): return 1.0")
 
         with pytest.raises(SandboxStartupError):
             await evaluator.__aenter__()
 
-    async def test_run_빈_stdout이면_SandboxStartupError(
-        self, subproc: SubprocessRecorder
-    ) -> None:
+    async def test_run_빈_stdout이면_SandboxStartupError(self, subproc: SubprocessRecorder) -> None:
         subproc.queue(FakeProcess(stdout=b"\n", returncode=0))
         evaluator = CustomCodeEvaluator(code="def evaluate(o,e,m): return 1.0")
 
@@ -267,16 +259,12 @@ class TestLifecycle:
 class TestEvaluateSuccess:
     """정상 케이스 — runner.py가 ``{score}``를 반환."""
 
-    async def test_정상_score_0_85_반환(
-        self, subproc: SubprocessRecorder
-    ) -> None:
+    async def test_정상_score_0_85_반환(self, subproc: SubprocessRecorder) -> None:
         subproc.queue(FakeProcess(stdout=b"cid-1\n"))  # spawn
         # exec 응답
         subproc.queue(
             FakeProcess(
-                stdout=json.dumps(
-                    {"id": "validate-0", "status": "success", "score": 0.85}
-                ).encode()
+                stdout=json.dumps({"id": "validate-0", "status": "success", "score": 0.85}).encode()
                 + b"\n",
             )
         )
@@ -289,14 +277,10 @@ class TestEvaluateSuccess:
 
         assert score == pytest.approx(0.85)
 
-    async def test_score_1_초과는_1_0으로_클램핑(
-        self, subproc: SubprocessRecorder
-    ) -> None:
+    async def test_score_1_초과는_1_0으로_클램핑(self, subproc: SubprocessRecorder) -> None:
         subproc.queue(FakeProcess(stdout=b"cid\n"))
         subproc.queue(
-            FakeProcess(
-                stdout=json.dumps({"id": "x", "status": "success", "score": 5.0}).encode()
-            )
+            FakeProcess(stdout=json.dumps({"id": "x", "status": "success", "score": 5.0}).encode())
         )
         subproc.queue(FakeProcess(), FakeProcess())
 
@@ -306,14 +290,10 @@ class TestEvaluateSuccess:
 
         assert score == pytest.approx(1.0)
 
-    async def test_score_음수는_0_으로_클램핑(
-        self, subproc: SubprocessRecorder
-    ) -> None:
+    async def test_score_음수는_0_으로_클램핑(self, subproc: SubprocessRecorder) -> None:
         subproc.queue(FakeProcess(stdout=b"cid\n"))
         subproc.queue(
-            FakeProcess(
-                stdout=json.dumps({"id": "x", "status": "success", "score": -0.3}).encode()
-            )
+            FakeProcess(stdout=json.dumps({"id": "x", "status": "success", "score": -0.3}).encode())
         )
         subproc.queue(FakeProcess(), FakeProcess())
 
@@ -362,9 +342,7 @@ class TestEvaluateSuccess:
 class TestEvaluateErrors:
     """runner 에러 / timeout / JSON 파싱 실패."""
 
-    async def test_runner_에러_응답시_None(
-        self, subproc: SubprocessRecorder
-    ) -> None:
+    async def test_runner_에러_응답시_None(self, subproc: SubprocessRecorder) -> None:
         subproc.queue(FakeProcess(stdout=b"cid\n"))
         subproc.queue(
             FakeProcess(
@@ -386,9 +364,7 @@ class TestEvaluateErrors:
 
         assert score is None
 
-    async def test_runner_timeout_응답시_None(
-        self, subproc: SubprocessRecorder
-    ) -> None:
+    async def test_runner_timeout_응답시_None(self, subproc: SubprocessRecorder) -> None:
         subproc.queue(FakeProcess(stdout=b"cid\n"))
         subproc.queue(
             FakeProcess(
@@ -410,9 +386,7 @@ class TestEvaluateErrors:
 
         assert score is None
 
-    async def test_wall_clock_timeout시_None_반환(
-        self, subproc: SubprocessRecorder
-    ) -> None:
+    async def test_wall_clock_timeout시_None_반환(self, subproc: SubprocessRecorder) -> None:
         subproc.queue(FakeProcess(stdout=b"cid\n"))
         # exec proc는 무한 대기 → wait_for(timeout=0.1)이 발동
         subproc.queue(FakeProcess(simulate_timeout=True))
@@ -427,9 +401,7 @@ class TestEvaluateErrors:
 
         assert score is None
 
-    async def test_JSON_파싱_실패시_None(
-        self, subproc: SubprocessRecorder
-    ) -> None:
+    async def test_JSON_파싱_실패시_None(self, subproc: SubprocessRecorder) -> None:
         subproc.queue(FakeProcess(stdout=b"cid\n"))
         subproc.queue(FakeProcess(stdout=b"not valid json\n"))
         subproc.queue(FakeProcess(), FakeProcess())
@@ -440,9 +412,7 @@ class TestEvaluateErrors:
 
         assert score is None
 
-    async def test_빈_stdout이면_None(
-        self, subproc: SubprocessRecorder
-    ) -> None:
+    async def test_빈_stdout이면_None(self, subproc: SubprocessRecorder) -> None:
         subproc.queue(FakeProcess(stdout=b"cid\n"))
         subproc.queue(FakeProcess(stdout=b""))
         subproc.queue(FakeProcess(), FakeProcess())
@@ -453,9 +423,7 @@ class TestEvaluateErrors:
 
         assert score is None
 
-    async def test_score가_숫자가_아니면_None(
-        self, subproc: SubprocessRecorder
-    ) -> None:
+    async def test_score가_숫자가_아니면_None(self, subproc: SubprocessRecorder) -> None:
         subproc.queue(FakeProcess(stdout=b"cid\n"))
         subproc.queue(
             FakeProcess(
@@ -478,9 +446,7 @@ class TestEvaluateErrors:
 class TestSerialization:
     """비-문자열 output / expected / metadata 직렬화."""
 
-    async def test_dict_output은_JSON으로_직렬화(
-        self, subproc: SubprocessRecorder
-    ) -> None:
+    async def test_dict_output은_JSON으로_직렬화(self, subproc: SubprocessRecorder) -> None:
         subproc.queue(FakeProcess(stdout=b"cid\n"))
         exec_proc = FakeProcess(
             stdout=json.dumps({"id": "x", "status": "success", "score": 0.5}).encode()
@@ -494,13 +460,9 @@ class TestSerialization:
 
         sent = json.loads(exec_proc.stdin_received.decode().strip())  # type: ignore[union-attr]
         assert sent["output"] == json.dumps({"a": 1}, ensure_ascii=False, sort_keys=True)
-        assert sent["expected"] == json.dumps(
-            [1, 2, 3], ensure_ascii=False, sort_keys=True
-        )
+        assert sent["expected"] == json.dumps([1, 2, 3], ensure_ascii=False, sort_keys=True)
 
-    async def test_None_expected는_빈문자열(
-        self, subproc: SubprocessRecorder
-    ) -> None:
+    async def test_None_expected는_빈문자열(self, subproc: SubprocessRecorder) -> None:
         subproc.queue(FakeProcess(stdout=b"cid\n"))
         exec_proc = FakeProcess(
             stdout=json.dumps({"id": "x", "status": "success", "score": 0.5}).encode()
@@ -529,17 +491,13 @@ class TestValidateCode:
         )
         assert result == []
 
-    async def test_여러_test_case_정상_평가(
-        self, subproc: SubprocessRecorder
-    ) -> None:
+    async def test_여러_test_case_정상_평가(self, subproc: SubprocessRecorder) -> None:
         subproc.queue(FakeProcess(stdout=b"cid\n"))  # spawn
         # 3개 test_case → 3번의 exec
         for score in (0.1, 0.5, 1.0):
             subproc.queue(
                 FakeProcess(
-                    stdout=json.dumps(
-                        {"id": "x", "status": "success", "score": score}
-                    ).encode()
+                    stdout=json.dumps({"id": "x", "status": "success", "score": score}).encode()
                 )
             )
         subproc.queue(FakeProcess(), FakeProcess())  # cleanup
@@ -559,9 +517,7 @@ class TestValidateCode:
             {"result": pytest.approx(1.0)},
         ]
 
-    async def test_test_case_에러는_error_필드로_변환(
-        self, subproc: SubprocessRecorder
-    ) -> None:
+    async def test_test_case_에러는_error_필드로_변환(self, subproc: SubprocessRecorder) -> None:
         subproc.queue(FakeProcess(stdout=b"cid\n"))
         subproc.queue(
             FakeProcess(
@@ -585,9 +541,7 @@ class TestValidateCode:
         assert len(result) == 1
         assert "error" in result[0]
 
-    async def test_metadata가_dict가_아니면_error(
-        self, subproc: SubprocessRecorder
-    ) -> None:
+    async def test_metadata가_dict가_아니면_error(self, subproc: SubprocessRecorder) -> None:
         subproc.queue(FakeProcess(stdout=b"cid\n"))
         # 단 한 번도 exec가 호출되지 않아야 한다
         subproc.queue(FakeProcess(), FakeProcess())  # cleanup
@@ -605,9 +559,7 @@ class TestValidateCode:
         self, subproc: SubprocessRecorder
     ) -> None:
         # spawn 실패
-        subproc.queue(
-            FakeProcess(stdout=b"", stderr=b"image missing", returncode=125)
-        )
+        subproc.queue(FakeProcess(stdout=b"", stderr=b"image missing", returncode=125))
 
         result = await validate_code(
             code="def evaluate(o,e,m): return 1.0",

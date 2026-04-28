@@ -104,9 +104,7 @@ class TestScoreParsing:
         assert judge.last_reasoning == "ok"
 
     async def test_JSON_뒤에_쓰레기_텍스트가_있어도_파싱한다(self) -> None:
-        litellm = _SequencedLiteLLM(
-            [_build_response('{"score": 7, "reasoning": "good"} 추가설명')]
-        )
+        litellm = _SequencedLiteLLM([_build_response('{"score": 7, "reasoning": "good"} 추가설명')])
         judge = LLMJudgeEvaluator(litellm=litellm)  # type: ignore[arg-type]
 
         score = await judge.evaluate("x", None, {})
@@ -369,9 +367,7 @@ class TestCostTracking:
         assert judge.total_cost == pytest.approx(0.003)
 
     async def test_cost_없는_응답은_0(self) -> None:
-        litellm = _SequencedLiteLLM(
-            [_build_response('{"score": 5}', cost=None)]
-        )
+        litellm = _SequencedLiteLLM([_build_response('{"score": 5}', cost=None)])
         judge = LLMJudgeEvaluator(litellm=litellm)  # type: ignore[arg-type]
 
         await judge.evaluate("o", None, {})
@@ -385,9 +381,7 @@ class TestCostTracking:
 class TestMockProxyIntegration:
     """conftest의 ``litellm_client`` fixture와 호환되는지 확인."""
 
-    async def test_set_response로_judge_파싱(
-        self, litellm_client: MockLiteLLMProxy
-    ) -> None:
+    async def test_set_response로_judge_파싱(self, litellm_client: MockLiteLLMProxy) -> None:
         litellm_client.set_response('{"score": 8, "reasoning": "good"}')
         judge = LLMJudgeEvaluator(litellm=litellm_client)  # type: ignore[arg-type]
 
@@ -396,9 +390,7 @@ class TestMockProxyIntegration:
         assert score == pytest.approx(0.8)
         assert judge.last_reasoning == "good"
 
-    async def test_set_failure로_호출_실패_3회_None(
-        self, litellm_client: MockLiteLLMProxy
-    ) -> None:
+    async def test_set_failure로_호출_실패_3회_None(self, litellm_client: MockLiteLLMProxy) -> None:
         litellm_client.set_failure(RuntimeError("boom"))
         judge = LLMJudgeEvaluator(litellm=litellm_client, max_retries=2)  # type: ignore[arg-type]
 
@@ -414,10 +406,7 @@ class TestHelpers:
         assert _extract_first_json_object('foo {"a": 1} bar') == '{"a": 1}'
 
     def test_중첩_JSON_추출(self) -> None:
-        assert (
-            _extract_first_json_object('text {"a": {"b": 2}} end')
-            == '{"a": {"b": 2}}'
-        )
+        assert _extract_first_json_object('text {"a": {"b": 2}} end') == '{"a": {"b": 2}}'
 
     def test_문자열_내_괄호_무시(self) -> None:
         # 문자열 내 `{`는 depth 카운트에 영향을 주면 안 된다

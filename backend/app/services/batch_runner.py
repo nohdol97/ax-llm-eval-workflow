@@ -246,9 +246,7 @@ class BatchExperimentRunner:
             try:
                 validate_weights(request.evaluators)
             except ValueError as exc:
-                raise LabsError(
-                    detail=f"evaluator 가중치 검증 실패: {exc}"
-                ) from exc
+                raise LabsError(detail=f"evaluator 가중치 검증 실패: {exc}") from exc
 
         # 1) 데이터셋 아이템 fetch (총 아이템 수 산출에 필요)
         try:
@@ -256,13 +254,9 @@ class BatchExperimentRunner:
                 list_dataset_items_via_client,
             )
 
-            items_raw = list_dataset_items_via_client(
-                self._langfuse, request.dataset_name
-            )
+            items_raw = list_dataset_items_via_client(self._langfuse, request.dataset_name)
         except Exception as exc:
-            raise LabsError(
-                detail=f"데이터셋 조회 실패: {request.dataset_name!r} ({exc})"
-            ) from exc
+            raise LabsError(detail=f"데이터셋 조회 실패: {request.dataset_name!r} ({exc})") from exc
 
         item_count = len(items_raw)
 
@@ -270,9 +264,7 @@ class BatchExperimentRunner:
         runs: list[RunInitSummary] = []
         for prompt_cfg in request.prompt_configs:
             for model_cfg in request.model_configs:
-                run_name = _short_run_name(
-                    prompt_cfg.name, prompt_cfg.version, model_cfg.model
-                )
+                run_name = _short_run_name(prompt_cfg.name, prompt_cfg.version, model_cfg.model)
                 runs.append(
                     RunInitSummary(
                         run_name=run_name,
@@ -327,15 +319,11 @@ class BatchExperimentRunner:
 
         # Run 이름 Set 등록 + 각 Run Hash 초기화
         if runs:
-            await underlying.sadd(
-                runs_full_key, *[r.run_name for r in runs]
-            )
+            await underlying.sadd(runs_full_key, *[r.run_name for r in runs])
             await underlying.expire(runs_full_key, EXPERIMENT_TTL_ACTIVE_SEC)
 
             for r in runs:
-                run_full_key = _full_key(
-                    self._redis, _run_key(experiment_id, r.run_name)
-                )
+                run_full_key = _full_key(self._redis, _run_key(experiment_id, r.run_name))
                 await underlying.hset(
                     run_full_key,
                     mapping={
@@ -343,9 +331,7 @@ class BatchExperimentRunner:
                         "model": r.model,
                         "prompt_name": r.prompt_name,
                         "prompt_version": (
-                            str(r.prompt_version)
-                            if r.prompt_version is not None
-                            else "0"
+                            str(r.prompt_version) if r.prompt_version is not None else "0"
                         ),
                         "completed_items": 0,
                         "failed_items": 0,
@@ -359,9 +345,7 @@ class BatchExperimentRunner:
                 await underlying.expire(run_full_key, EXPERIMENT_TTL_ACTIVE_SEC)
 
         # 프로젝트 인덱스에 등록 (Sorted Set, score=created_at_ms)
-        proj_full_key = _full_key(
-            self._redis, _project_experiments_key(request.project_id)
-        )
+        proj_full_key = _full_key(self._redis, _project_experiments_key(request.project_id))
         score = started_at.timestamp()
         await underlying.zadd(proj_full_key, {experiment_id: score})
 
@@ -373,9 +357,7 @@ class BatchExperimentRunner:
             )
             self._tasks[experiment_id] = task
             # 완료 시 핸들 정리
-            task.add_done_callback(
-                lambda t: self._tasks.pop(experiment_id, None)
-            )
+            task.add_done_callback(lambda t: self._tasks.pop(experiment_id, None))
 
         logger.info(
             "experiment_created",
@@ -439,18 +421,14 @@ class BatchExperimentRunner:
         owner = _hget_str(raw, "owner_user_id") or _hget_str(raw, "started_by") or ""
         project_id = _hget_str(raw, "project_id") or ""
         if not config_raw:
-            await self._fail_experiment(
-                experiment_id, owner, "config snapshot 없음"
-            )
+            await self._fail_experiment(experiment_id, owner, "config snapshot 없음")
             return
 
         try:
             config = json.loads(config_raw)
             request = ExperimentCreate.model_validate(config)
         except Exception as exc:  # noqa: BLE001
-            await self._fail_experiment(
-                experiment_id, owner, f"config 파싱 실패: {exc}"
-            )
+            await self._fail_experiment(experiment_id, owner, f"config 파싱 실패: {exc}")
             return
 
         # 데이터셋 아이템 fetch
@@ -459,22 +437,16 @@ class BatchExperimentRunner:
                 list_dataset_items_via_client,
             )
 
-            items_raw = list_dataset_items_via_client(
-                self._langfuse, request.dataset_name
-            )
+            items_raw = list_dataset_items_via_client(self._langfuse, request.dataset_name)
         except Exception as exc:  # noqa: BLE001
-            await self._fail_experiment(
-                experiment_id, owner, f"데이터셋 조회 실패: {exc}"
-            )
+            await self._fail_experiment(experiment_id, owner, f"데이터셋 조회 실패: {exc}")
             return
 
         # Run 조합 (재구성 — Redis Set은 unordered이므로 request에서 다시 생성)
         runs: list[tuple[str, Any, Any]] = []  # (run_name, prompt_cfg, model_cfg)
         for prompt_cfg in request.prompt_configs:
             for model_cfg in request.model_configs:
-                run_name = _short_run_name(
-                    prompt_cfg.name, prompt_cfg.version, model_cfg.model
-                )
+                run_name = _short_run_name(prompt_cfg.name, prompt_cfg.version, model_cfg.model)
                 runs.append((run_name, prompt_cfg, model_cfg))
 
         # 동시성 제한
@@ -552,18 +524,13 @@ class BatchExperimentRunner:
                     "run_complete",
                     {
                         "run_name": run_name,
-                        "summary": await self._run_summary(
-                            experiment_id, run_name
-                        ),
+                        "summary": await self._run_summary(experiment_id, run_name),
                     },
                 )
 
                 # 실패율 >50% 자동 일시정지
                 processed = run_completed + run_failed
-                if (
-                    processed > 0
-                    and run_failed / processed > AUTO_PAUSE_FAILURE_RATE
-                ):
+                if processed > 0 and run_failed / processed > AUTO_PAUSE_FAILURE_RATE:
                     await self._auto_pause(experiment_id, owner, run_name)
                     return
 
@@ -675,9 +642,7 @@ class BatchExperimentRunner:
                         "run_name": run_name,
                         "item_id": item_id,
                         "attempts": attempt,
-                        "error_type": type(last_exc).__name__
-                        if last_exc
-                        else "unknown",
+                        "error_type": type(last_exc).__name__ if last_exc else "unknown",
                     },
                 )
                 # 실패 아이템 Set에 등록
@@ -697,9 +662,7 @@ class BatchExperimentRunner:
                     experiment_id,
                     "error",
                     {
-                        "code": type(last_exc).__name__
-                        if last_exc
-                        else "ItemError",
+                        "code": type(last_exc).__name__ if last_exc else "ItemError",
                         "message": str(last_exc) if last_exc else "unknown",
                         "item_id": item_id,
                         "run_name": run_name,
@@ -770,9 +733,7 @@ class BatchExperimentRunner:
             messages.append({"role": "user", "content": compiled})
         elif isinstance(compiled, list):
             messages = [m for m in compiled if isinstance(m, dict)]
-            if system_prompt and not any(
-                m.get("role") == "system" for m in messages
-            ):
+            if system_prompt and not any(m.get("role") == "system" for m in messages):
                 messages.insert(0, {"role": "system", "content": system_prompt})
         else:
             messages = [{"role": "user", "content": str(compiled)}]
@@ -887,9 +848,7 @@ class BatchExperimentRunner:
             pipe.hincrby(exp_full_key, "completed_items", 1)
             pipe.hincrbyfloat(exp_full_key, "total_cost_usd", cost_value)
             if weighted_score is not None:
-                pipe.hincrbyfloat(
-                    run_full_key, "total_score_sum", float(weighted_score)
-                )
+                pipe.hincrbyfloat(run_full_key, "total_score_sum", float(weighted_score))
                 pipe.hincrby(run_full_key, "scored_count", 1)
             await pipe.execute()
         except Exception as exc:  # noqa: BLE001
@@ -963,9 +922,7 @@ class BatchExperimentRunner:
         """현재 실험 상태 조회 (없으면 빈 문자열)."""
         underlying = _underlying(self._redis)
         try:
-            value = await underlying.hget(
-                _full_key(self._redis, _exp_key(experiment_id)), "status"
-            )
+            value = await underlying.hget(_full_key(self._redis, _exp_key(experiment_id)), "status")
         except Exception:  # noqa: BLE001
             return ""
         if value is None:
@@ -994,9 +951,7 @@ class BatchExperimentRunner:
         except Exception:  # noqa: BLE001, S110  # pragma: no cover
             pass
 
-    async def _run_summary(
-        self, experiment_id: str, run_name: str
-    ) -> dict[str, Any]:
+    async def _run_summary(self, experiment_id: str, run_name: str) -> dict[str, Any]:
         """Run 요약 dict — run_complete 이벤트 페이로드용."""
         underlying = _underlying(self._redis)
         try:
@@ -1126,9 +1081,7 @@ class BatchExperimentRunner:
                     extra={"experiment_id": experiment_id, "error": str(exc)},
                 )
 
-    async def _fail_experiment(
-        self, experiment_id: str, owner: str, error_message: str
-    ) -> None:
+    async def _fail_experiment(self, experiment_id: str, owner: str, error_message: str) -> None:
         """실험 인프라 레벨 실패 — status=failed."""
         underlying = _underlying(self._redis)
         exp_full_key = _full_key(self._redis, _exp_key(experiment_id))
@@ -1167,9 +1120,7 @@ class BatchExperimentRunner:
             except Exception:  # noqa: BLE001, S110  # pragma: no cover
                 pass
 
-    async def _auto_pause(
-        self, experiment_id: str, owner: str, run_name: str
-    ) -> None:
+    async def _auto_pause(self, experiment_id: str, owner: str, run_name: str) -> None:
         """실패율 >50% 자동 일시정지."""
         underlying = _underlying(self._redis)
         exp_full_key = _full_key(self._redis, _exp_key(experiment_id))

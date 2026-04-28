@@ -191,11 +191,7 @@ def sanitize_csv_value(value: Any) -> Any:
 
 def is_formula_injection(value: Any) -> bool:
     """주어진 값이 CSV formula injection 위험에 해당하는지 판별 (검증용)."""
-    return (
-        isinstance(value, str)
-        and len(value) > 0
-        and value[0] in CSV_FORMULA_PREFIXES
-    )
+    return isinstance(value, str) and len(value) > 0 and value[0] in CSV_FORMULA_PREFIXES
 
 
 # ---------- 파일 파싱 ----------
@@ -206,8 +202,7 @@ def _validate_size_and_decode(content: bytes) -> str:
     if len(content) > MAX_FILE_SIZE_BYTES:
         raise FileTooLargeError(
             detail=(
-                f"파일 크기 {len(content)} bytes가 제한 {MAX_FILE_SIZE_BYTES} bytes를"
-                " 초과했습니다."
+                f"파일 크기 {len(content)} bytes가 제한 {MAX_FILE_SIZE_BYTES} bytes를 초과했습니다."
             )
         )
     encoding = detect_encoding(content)
@@ -240,9 +235,7 @@ def _iter_jsonl_rows(text: str) -> Iterator[dict[str, Any]]:
                 detail=f"JSONL 라인 {line_no} 파싱 실패: {exc.msg}"
             ) from exc
         if not isinstance(obj, dict):
-            raise DatasetValidationError(
-                detail=f"JSONL 라인 {line_no}: 객체(dict)여야 합니다."
-            )
+            raise DatasetValidationError(detail=f"JSONL 라인 {line_no}: 객체(dict)여야 합니다.")
         yield obj
 
 
@@ -251,17 +244,13 @@ def _iter_json_rows(text: str) -> Iterator[dict[str, Any]]:
     try:
         obj = json.loads(text)
     except json.JSONDecodeError as exc:
-        raise DatasetValidationError(
-            detail=f"JSON 파싱 실패: {exc.msg}"
-        ) from exc
+        raise DatasetValidationError(detail=f"JSON 파싱 실패: {exc.msg}") from exc
     if isinstance(obj, dict):
         # 단일 객체 → 단일 행으로 처리
         yield obj
         return
     if not isinstance(obj, list):
-        raise DatasetValidationError(
-            detail="JSON 최상위는 배열(list) 또는 객체(dict)여야 합니다."
-        )
+        raise DatasetValidationError(detail="JSON 최상위는 배열(list) 또는 객체(dict)여야 합니다.")
     for idx, item in enumerate(obj):
         if not isinstance(item, dict):
             raise DatasetValidationError(
@@ -286,9 +275,7 @@ def _validate_mapping_against_columns(
         if col not in columns_set:
             missing.append(col)
     if missing:
-        raise DatasetValidationError(
-            detail=f"매핑된 컬럼이 파일에 존재하지 않습니다: {missing}"
-        )
+        raise DatasetValidationError(detail=f"매핑된 컬럼이 파일에 존재하지 않습니다: {missing}")
 
 
 def _row_to_item(
@@ -298,9 +285,7 @@ def _row_to_item(
     """단일 dict 행을 ``{input, expected_output, metadata}`` 형태로 변환."""
     input_dict: dict[str, Any] = {col: row.get(col) for col in mapping.input_columns}
     expected = row.get(mapping.output_column)
-    metadata: dict[str, Any] = {
-        col: row.get(col) for col in mapping.metadata_columns
-    }
+    metadata: dict[str, Any] = {col: row.get(col) for col in mapping.metadata_columns}
     return {
         "input": input_dict,
         "expected_output": expected,
@@ -357,9 +342,7 @@ def parse_file(
         yielded += 1
         if enforce_row_limit and yielded > MAX_ROWS:
             raise TooManyRowsError(
-                detail=(
-                    f"행 수가 {MAX_ROWS}건을 초과했습니다. 파일을 분할하여 업로드하세요."
-                )
+                detail=(f"행 수가 {MAX_ROWS}건을 초과했습니다. 파일을 분할하여 업로드하세요.")
             )
 
     yield _row_to_item(first_row, mapping)
@@ -412,12 +395,12 @@ def preview_file(
     total_rows = count_rows(content, filename)
     items: list[PreviewItem] = []
     columns: list[str] = []
-    for idx, parsed in enumerate(
-        parse_file(content, filename, mapping, enforce_row_limit=False)
-    ):
+    for idx, parsed in enumerate(parse_file(content, filename, mapping, enforce_row_limit=False)):
         if idx == 0:
-            columns = list(mapping.input_columns) + [mapping.output_column] + list(
-                mapping.metadata_columns
+            columns = (
+                list(mapping.input_columns)
+                + [mapping.output_column]
+                + list(mapping.metadata_columns)
             )
         if idx >= limit:
             break
@@ -801,9 +784,7 @@ def list_datasets_via_client(langfuse: LangfuseClient | Any) -> list[dict[str, A
     # 2) Mock client의 내부 상태 (테스트용)
     datasets = getattr(langfuse, "_datasets", None)
     if isinstance(datasets, dict):
-        return [
-            _normalize_dataset_summary(ds) for ds in datasets.values()
-        ]
+        return [_normalize_dataset_summary(ds) for ds in datasets.values()]
 
     # 3) Real LangfuseClient — SDK lazy 초기화
     get_sdk = getattr(langfuse, "_get_sdk", None)
@@ -816,9 +797,7 @@ def list_datasets_via_client(langfuse: LangfuseClient | Any) -> list[dict[str, A
                 if isinstance(raw, list):
                     return [_normalize_dataset_summary(item) for item in raw]
         except Exception as exc:  # noqa: BLE001
-            raise LangfuseError(
-                detail=f"list_datasets 실패: {exc}"
-            ) from exc
+            raise LangfuseError(detail=f"list_datasets 실패: {exc}") from exc
 
     # 메서드도 상태도 없음
     return []
@@ -847,9 +826,7 @@ def list_dataset_items_via_client(
             if isinstance(result, list):
                 return [_normalize_dataset_item(it) for it in result]
         except Exception as exc:  # noqa: BLE001
-            raise LangfuseError(
-                detail=f"list_dataset_items 실패: {exc}"
-            ) from exc
+            raise LangfuseError(detail=f"list_dataset_items 실패: {exc}") from exc
 
     # SDK 직접 시도
     get_sdk = getattr(langfuse, "_get_sdk", None)
@@ -862,9 +839,7 @@ def list_dataset_items_via_client(
                 items = getattr(ds, "items", None) or []
                 return [_normalize_dataset_item(it) for it in items]
         except Exception as exc:  # noqa: BLE001
-            raise LangfuseError(
-                detail=f"get_dataset 실패: {exc}"
-            ) from exc
+            raise LangfuseError(detail=f"get_dataset 실패: {exc}") from exc
 
     raise DatasetNotFoundError(detail=f"데이터셋을 찾을 수 없습니다: {dataset_name}")
 
@@ -878,9 +853,7 @@ def get_dataset_via_client(
     if not callable(fn):
         return None
     try:
-        ds = fn(name=dataset_name) if "name" in fn.__code__.co_varnames else fn(
-            dataset_name
-        )
+        ds = fn(name=dataset_name) if "name" in fn.__code__.co_varnames else fn(dataset_name)
     except Exception:  # noqa: BLE001
         return None
     if ds is None:
@@ -899,9 +872,7 @@ def delete_dataset_via_client(
         if dataset_name in datasets:
             del datasets[dataset_name]
             return True
-        raise DatasetNotFoundError(
-            detail=f"데이터셋을 찾을 수 없습니다: {dataset_name}"
-        )
+        raise DatasetNotFoundError(detail=f"데이터셋을 찾을 수 없습니다: {dataset_name}")
 
     # Real client
     fn = getattr(langfuse, "delete_dataset", None)
@@ -910,9 +881,7 @@ def delete_dataset_via_client(
             fn(name=dataset_name)
             return True
         except Exception as exc:  # noqa: BLE001
-            raise LangfuseError(
-                detail=f"delete_dataset 실패: {exc}"
-            ) from exc
+            raise LangfuseError(detail=f"delete_dataset 실패: {exc}") from exc
 
     # SDK 직접
     get_sdk = getattr(langfuse, "_get_sdk", None)
@@ -924,9 +893,7 @@ def delete_dataset_via_client(
                 sdk_fn(name=dataset_name)
                 return True
         except Exception as exc:  # noqa: BLE001
-            raise LangfuseError(
-                detail=f"delete_dataset 실패: {exc}"
-            ) from exc
+            raise LangfuseError(detail=f"delete_dataset 실패: {exc}") from exc
 
     raise LangfuseError(detail="delete_dataset 메서드를 찾을 수 없습니다.")
 
@@ -938,9 +905,7 @@ def _normalize_dataset_summary(ds: Any) -> dict[str, Any]:
             "name": ds.get("name"),
             "description": ds.get("description"),
             "item_count": int(
-                ds.get("item_count")
-                or ds.get("itemCount")
-                or len(ds.get("items") or [])
+                ds.get("item_count") or ds.get("itemCount") or len(ds.get("items") or [])
             ),
             "created_at": ds.get("created_at") or ds.get("createdAt"),
         }

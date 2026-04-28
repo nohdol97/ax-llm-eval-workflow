@@ -75,7 +75,10 @@ export function GeneralTab() {
   const switchProject = useSwitchProject();
   const healthQuery = useHealth();
 
-  const projects = projectsQuery.data?.projects ?? [];
+  const projects = useMemo(
+    () => projectsQuery.data?.projects ?? [],
+    [projectsQuery.data?.projects]
+  );
   const initialProjectId =
     (user as { currentProjectId?: string } | null)?.currentProjectId ??
     projects[0]?.id ??

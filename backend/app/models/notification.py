@@ -38,22 +38,16 @@ class Notification(BaseModel):
     type: NotificationType = Field(..., description="알림 타입")
     title: str = Field(..., description="알림 제목")
     body: str = Field(..., description="알림 본문 (저장소 ``message`` 필드와 호환)")
-    link: str | None = Field(
-        None, description="클릭 시 이동할 URL (저장소 ``target_url`` 필드)"
-    )
+    link: str | None = Field(None, description="클릭 시 이동할 URL (저장소 ``target_url`` 필드)")
     read: bool = Field(False, description="읽음 여부")
     created_at: datetime = Field(..., description="생성 시각 (UTC)")
-    read_at: datetime | None = Field(
-        None, description="읽음 처리 시각 (UTC). 미열람이면 None."
-    )
+    read_at: datetime | None = Field(None, description="읽음 처리 시각 (UTC). 미열람이면 None.")
 
 
 class NotificationListResponse(BaseModel):
     """``GET /api/v1/notifications`` 응답."""
 
-    items: list[Notification] = Field(
-        default_factory=list, description="알림 목록 (최신순)"
-    )
+    items: list[Notification] = Field(default_factory=list, description="알림 목록 (최신순)")
     total: int = Field(0, description="필터 적용 후 전체 개수")
     unread_count: int = Field(0, description="미열람 개수 (필터 무관)")
     page: int = Field(1, description="현재 페이지 (1-based)")

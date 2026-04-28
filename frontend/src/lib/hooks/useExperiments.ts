@@ -64,7 +64,7 @@ function mockToExperimentDetail(id: string): ExperimentDetail | null {
       percentage:
         e.runCount > 0 ? (e.completedRuns / e.runCount) * 100 : 0,
     },
-    runs: e.modelIds.map((m, i) => ({
+    runs: e.modelIds.map((m) => ({
       run_name: `${e.promptName}_v${e.promptVersions[0]}_${m}`,
       model: m,
       prompt_version: e.promptVersions[0] ?? 1,

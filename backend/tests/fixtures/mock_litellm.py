@@ -90,9 +90,7 @@ class MockLiteLLMProxy:
         content = self._response_content
         if content is None:
             # 결정론적 mock — input 해시 기반 8자 응답 prefix
-            seed = "|".join(
-                f"{m.get('role','')}:{m.get('content','')}" for m in messages
-            )
+            seed = "|".join(f"{m.get('role', '')}:{m.get('content', '')}" for m in messages)
             digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()[:8]
             content = f"mock response [{digest}] for model={model}"
 

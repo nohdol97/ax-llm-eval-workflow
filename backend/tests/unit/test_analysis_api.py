@@ -41,9 +41,7 @@ def mock_clickhouse() -> MockClickHouseClient:
 
 
 @pytest.fixture
-def analysis_app(
-    viewer_user: User, mock_clickhouse: MockClickHouseClient
-) -> Iterator[TestClient]:
+def analysis_app(viewer_user: User, mock_clickhouse: MockClickHouseClient) -> Iterator[TestClient]:
     """분석 라우터 + mock ClickHouse + viewer 토큰."""
     app = create_app()
     service = AnalysisService(clickhouse=mock_clickhouse)  # type: ignore[arg-type]
@@ -115,18 +113,14 @@ class TestCompareRunsEndpoint:
         assert "accuracy" in body["scores"]
         assert body["scores"]["accuracy"]["run_a"] == pytest.approx(0.85)
 
-    def test_run_names_too_few(
-        self, analysis_app: TestClient
-    ) -> None:
+    def test_run_names_too_few(self, analysis_app: TestClient) -> None:
         resp = analysis_app.post(
             "/api/v1/analysis/compare",
             json={"project_id": "p", "run_names": ["only_one"]},
         )
         assert resp.status_code == 422
 
-    def test_run_names_too_many(
-        self, analysis_app: TestClient
-    ) -> None:
+    def test_run_names_too_many(self, analysis_app: TestClient) -> None:
         resp = analysis_app.post(
             "/api/v1/analysis/compare",
             json={
@@ -136,18 +130,14 @@ class TestCompareRunsEndpoint:
         )
         assert resp.status_code == 422
 
-    def test_missing_project_id(
-        self, analysis_app: TestClient
-    ) -> None:
+    def test_missing_project_id(self, analysis_app: TestClient) -> None:
         resp = analysis_app.post(
             "/api/v1/analysis/compare",
             json={"run_names": ["a", "b"]},
         )
         assert resp.status_code == 422
 
-    def test_extra_field_rejected(
-        self, analysis_app: TestClient
-    ) -> None:
+    def test_extra_field_rejected(self, analysis_app: TestClient) -> None:
         resp = analysis_app.post(
             "/api/v1/analysis/compare",
             json={
@@ -221,9 +211,7 @@ class TestCompareItemsEndpoint:
         assert body["items"][0]["dataset_item_id"] == "i1"
         assert body["items"][0]["score_range"] == pytest.approx(0.6)
 
-    def test_invalid_sort_by(
-        self, analysis_app: TestClient
-    ) -> None:
+    def test_invalid_sort_by(self, analysis_app: TestClient) -> None:
         resp = analysis_app.post(
             "/api/v1/analysis/compare/items",
             json={
@@ -234,9 +222,7 @@ class TestCompareItemsEndpoint:
         )
         assert resp.status_code == 422
 
-    def test_page_size_limit(
-        self, analysis_app: TestClient
-    ) -> None:
+    def test_page_size_limit(self, analysis_app: TestClient) -> None:
         resp = analysis_app.post(
             "/api/v1/analysis/compare/items",
             json={
@@ -294,9 +280,7 @@ class TestScoreDistributionEndpoint:
         assert body["bins"][5]["count"] == 10
         assert "run_a" in body["statistics"]
 
-    def test_bins_too_low(
-        self, analysis_app: TestClient
-    ) -> None:
+    def test_bins_too_low(self, analysis_app: TestClient) -> None:
         resp = analysis_app.get(
             "/api/v1/analysis/scores/distribution",
             params=[
@@ -309,9 +293,7 @@ class TestScoreDistributionEndpoint:
         )
         assert resp.status_code == 422
 
-    def test_bins_too_high(
-        self, analysis_app: TestClient
-    ) -> None:
+    def test_bins_too_high(self, analysis_app: TestClient) -> None:
         resp = analysis_app.get(
             "/api/v1/analysis/scores/distribution",
             params=[
@@ -324,9 +306,7 @@ class TestScoreDistributionEndpoint:
         )
         assert resp.status_code == 422
 
-    def test_too_few_run_names(
-        self, analysis_app: TestClient
-    ) -> None:
+    def test_too_few_run_names(self, analysis_app: TestClient) -> None:
         resp = analysis_app.get(
             "/api/v1/analysis/scores/distribution",
             params=[
@@ -337,9 +317,7 @@ class TestScoreDistributionEndpoint:
         )
         assert resp.status_code == 422
 
-    def test_too_many_run_names(
-        self, analysis_app: TestClient
-    ) -> None:
+    def test_too_many_run_names(self, analysis_app: TestClient) -> None:
         resp = analysis_app.get(
             "/api/v1/analysis/scores/distribution",
             params=[
@@ -458,9 +436,7 @@ class TestCostDistributionEndpoint:
 class TestClickHouseUnavailable:
     """``app.state.clickhouse`` 가 None 일 때 503."""
 
-    def test_503_when_clickhouse_none(
-        self, viewer_user: User
-    ) -> None:
+    def test_503_when_clickhouse_none(self, viewer_user: User) -> None:
         """``app.state.clickhouse=None`` 시 ``get_analysis_service`` 가 503 raise."""
         app = create_app()
         app.dependency_overrides[get_current_user] = lambda: viewer_user
@@ -473,9 +449,8 @@ class TestClickHouseUnavailable:
             )
             assert resp.status_code == 503, resp.text
             body = resp.json()
-            assert (
-                "ClickHouse" in (body.get("detail") or "")
-                or "ClickHouse" in (body.get("title") or "")
+            assert "ClickHouse" in (body.get("detail") or "") or "ClickHouse" in (
+                body.get("title") or ""
             )
 
 
@@ -503,9 +478,7 @@ class TestPermissions:
             )
             assert resp.status_code == 200
 
-    def test_unauthenticated_blocked(
-        self, mock_clickhouse: MockClickHouseClient
-    ) -> None:
+    def test_unauthenticated_blocked(self, mock_clickhouse: MockClickHouseClient) -> None:
         """토큰 없으면 401."""
         _seed_compare_runs(mock_clickhouse)
         app = create_app()

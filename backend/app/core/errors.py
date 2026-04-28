@@ -172,9 +172,7 @@ async def _http_exception_handler(request: Request, exc: Exception) -> JSONRespo
     )
 
 
-async def _validation_exception_handler(
-    request: Request, exc: Exception
-) -> JSONResponse:
+async def _validation_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """Pydantic/FastAPI 검증 에러 핸들러.
 
     ``exc.errors()`` 결과는 ``ctx.error`` 등에 raw Exception 객체를 포함할 수 있어
@@ -188,8 +186,7 @@ async def _validation_exception_handler(
         for key, value in err.items():
             if key == "ctx" and isinstance(value, dict):
                 safe_err["ctx"] = {
-                    k: (str(v) if isinstance(v, BaseException) else v)
-                    for k, v in value.items()
+                    k: (str(v) if isinstance(v, BaseException) else v) for k, v in value.items()
                 }
             else:
                 safe_err[key] = value
@@ -204,9 +201,7 @@ async def _validation_exception_handler(
     )
 
 
-async def _unhandled_exception_handler(
-    request: Request, exc: Exception
-) -> JSONResponse:
+async def _unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """예상치 못한 예외 fallback 핸들러."""
     logger.exception(
         "unhandled_exception",

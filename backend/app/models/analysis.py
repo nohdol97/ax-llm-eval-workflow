@@ -31,9 +31,7 @@ class CompareRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     project_id: str = Field(..., min_length=1, description="대상 프로젝트 ID")
-    run_names: list[str] = Field(
-        ..., description="비교할 Run 이름 목록 (2~5개)"
-    )
+    run_names: list[str] = Field(..., description="비교할 Run 이름 목록 (2~5개)")
 
     @field_validator("run_names")
     @classmethod
@@ -114,9 +112,7 @@ class ItemComparison(BaseModel):
     dataset_item_id: str = Field(..., description="Langfuse dataset item ID")
     input: dict[str, Any] | None = Field(None, description="아이템 입력")
     expected: str | dict[str, Any] | None = Field(None, description="기대 출력")
-    outputs: dict[str, str] = Field(
-        default_factory=dict, description="{run_name: output_text}"
-    )
+    outputs: dict[str, str] = Field(default_factory=dict, description="{run_name: output_text}")
     scores: dict[str, dict[str, float | None]] = Field(
         default_factory=dict,
         description="{run_name: {score_name: value}}",
@@ -124,12 +120,8 @@ class ItemComparison(BaseModel):
     score_range: float | None = Field(
         None, description="|max(score) - min(score)| (score_name 기준)"
     )
-    latencies: dict[str, float] = Field(
-        default_factory=dict, description="{run_name: latency_ms}"
-    )
-    costs: dict[str, float] = Field(
-        default_factory=dict, description="{run_name: total_cost_usd}"
-    )
+    latencies: dict[str, float] = Field(default_factory=dict, description="{run_name: latency_ms}")
+    costs: dict[str, float] = Field(default_factory=dict, description="{run_name: total_cost_usd}")
 
 
 class CompareItemsResponse(BaseModel):
@@ -201,9 +193,7 @@ class CostBreakdown(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     model_cost: float = Field(0.0, ge=0.0, description="LLM 호출 비용")
-    eval_cost: float = Field(
-        0.0, ge=0.0, description="Judge / Embedding 등 평가 비용"
-    )
+    eval_cost: float = Field(0.0, ge=0.0, description="Judge / Embedding 등 평가 비용")
     total_cost: float = Field(0.0, ge=0.0)
 
 

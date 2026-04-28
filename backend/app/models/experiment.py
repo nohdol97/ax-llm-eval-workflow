@@ -130,9 +130,7 @@ class PromptConfig(BaseModel):
     version: int | None = Field(
         default=None, ge=1, description="프롬프트 버전 (label과 둘 중 하나 사용)"
     )
-    label: str | None = Field(
-        default=None, description="라벨 (production 등)"
-    )
+    label: str | None = Field(default=None, description="라벨 (production 등)")
 
     @model_validator(mode="after")
     def _validate_version_or_label(self) -> Self:
@@ -187,19 +185,13 @@ class ExperimentCreate(BaseModel):
     project_id: str = Field(..., min_length=1, description="대상 프로젝트 ID")
     name: str = Field(..., min_length=1, max_length=100, description="실험 이름")
     description: str | None = Field(default=None, description="실험 설명")
-    prompt_configs: list[PromptConfig] = Field(
-        ..., description="프롬프트 버전 목록 (1개 이상)"
-    )
-    dataset_name: str = Field(
-        ..., min_length=1, description="Langfuse 데이터셋 이름"
-    )
+    prompt_configs: list[PromptConfig] = Field(..., description="프롬프트 버전 목록 (1개 이상)")
+    dataset_name: str = Field(..., min_length=1, description="Langfuse 데이터셋 이름")
     dataset_variable_mapping: dict[str, str] | None = Field(
         default=None,
         description="``{프롬프트 변수명: dataset.input 키}``. None이면 자동 매핑.",
     )
-    model_configs: list[ModelConfig] = Field(
-        ..., description="모델/파라미터 조합 목록 (1개 이상)"
-    )
+    model_configs: list[ModelConfig] = Field(..., description="모델/파라미터 조합 목록 (1개 이상)")
     evaluators: list[EvaluatorConfig] = Field(
         default_factory=list,
         description="평가자 목록 (Phase 5 활성화 — 현재는 메타데이터로만 보존)",
@@ -208,9 +200,7 @@ class ExperimentCreate(BaseModel):
         default=5, ge=1, le=20, description="아이템 단위 동시 실행 한도 (1~20)"
     )
     system_prompt: str | None = Field(default=None, description="옵션 system 프롬프트")
-    metadata: dict[str, Any] = Field(
-        default_factory=dict, description="추가 메타데이터"
-    )
+    metadata: dict[str, Any] = Field(default_factory=dict, description="추가 메타데이터")
 
     @model_validator(mode="after")
     def _validate_combinations(self) -> Self:
@@ -252,9 +242,7 @@ class ExperimentInitResponse(BaseModel):
     status: ExperimentStatus = Field(..., description="초기 상태 (running 또는 queued)")
     total_runs: int = Field(..., ge=0, description="총 Run 수 (prompt × model)")
     total_items: int = Field(..., ge=0, description="총 평가 아이템 수")
-    runs: list[RunInitSummary] = Field(
-        default_factory=list, description="Run 목록"
-    )
+    runs: list[RunInitSummary] = Field(default_factory=list, description="Run 목록")
     started_at: datetime = Field(..., description="시작 시각 (UTC)")
 
 

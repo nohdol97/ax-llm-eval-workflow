@@ -64,9 +64,7 @@ def get_governance_service(
 
 
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
-GovernanceDep = Annotated[
-    EvaluatorGovernanceService, Depends(get_governance_service)
-]
+GovernanceDep = Annotated[EvaluatorGovernanceService, Depends(get_governance_service)]
 
 
 # ---------- 헬퍼 ----------
@@ -105,9 +103,7 @@ def _serialize_submission(
 ) -> dict[str, Any]:
     """응답 직렬화 — 본인/admin이 아니면 ``code`` 마스킹."""
     include_code = actor_is_admin or submission.submitted_by == actor_user_id
-    return EvaluatorGovernanceService.to_response(
-        submission, include_code=include_code
-    )
+    return EvaluatorGovernanceService.to_response(submission, include_code=include_code)
 
 
 # ---------- GET /built-in ----------
@@ -159,9 +155,7 @@ async def validate_evaluator(
     ),
 ) -> ValidateResponse:
     """샌드박스 컨테이너에서 evaluator 코드를 test_cases와 함께 실행."""
-    results = await governance.validate(
-        code=request.code, test_cases=request.test_cases
-    )
+    results = await governance.validate(code=request.code, test_cases=request.test_cases)
     return ValidateResponse(test_results=results)  # type: ignore[arg-type]
 
 
@@ -215,9 +209,7 @@ async def create_submission(
 async def list_submissions_endpoint(
     user: CurrentUserDep,
     governance: GovernanceDep,
-    status_filter: SubmissionStatus | None = Query(
-        None, alias="status", description="상태 필터"
-    ),
+    status_filter: SubmissionStatus | None = Query(None, alias="status", description="상태 필터"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
 ) -> SubmissionListResponse:
@@ -293,9 +285,7 @@ async def approve_submission(
 ) -> Any:
     """admin 승인 — pending → approved. ETag 검증 시 412."""
     try:
-        current = await governance.get_submission(
-            submission_id, user_id=user.id, is_admin=True
-        )
+        current = await governance.get_submission(submission_id, user_id=user.id, is_admin=True)
     except SubmissionNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -305,9 +295,7 @@ async def approve_submission(
     _verify_if_match(if_match, _etag_for_submission(current))
 
     try:
-        approved = await governance.approve(
-            submission_id, admin_id=user.id, note=request.note
-        )
+        approved = await governance.approve(submission_id, admin_id=user.id, note=request.note)
     except SubmissionStateConflictError:
         raise
     except SubmissionNotFoundError:
@@ -317,9 +305,7 @@ async def approve_submission(
         ) from None
 
     response.headers["ETag"] = _etag_for_submission(approved)
-    return _serialize_submission(
-        approved, actor_user_id=user.id, actor_is_admin=True
-    )
+    return _serialize_submission(approved, actor_user_id=user.id, actor_is_admin=True)
 
 
 # ---------- POST /submissions/{id}/reject ----------
@@ -338,9 +324,7 @@ async def reject_submission(
 ) -> Any:
     """admin 반려. ``reason``은 RejectionRequest에서 검증."""
     try:
-        current = await governance.get_submission(
-            submission_id, user_id=user.id, is_admin=True
-        )
+        current = await governance.get_submission(submission_id, user_id=user.id, is_admin=True)
     except SubmissionNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -350,9 +334,7 @@ async def reject_submission(
     _verify_if_match(if_match, _etag_for_submission(current))
 
     try:
-        rejected = await governance.reject(
-            submission_id, admin_id=user.id, reason=request.reason
-        )
+        rejected = await governance.reject(submission_id, admin_id=user.id, reason=request.reason)
     except SubmissionStateConflictError:
         raise
     except SubmissionNotFoundError:
@@ -362,9 +344,7 @@ async def reject_submission(
         ) from None
 
     response.headers["ETag"] = _etag_for_submission(rejected)
-    return _serialize_submission(
-        rejected, actor_user_id=user.id, actor_is_admin=True
-    )
+    return _serialize_submission(rejected, actor_user_id=user.id, actor_is_admin=True)
 
 
 # ---------- POST /submissions/{id}/deprecate ----------
@@ -381,9 +361,7 @@ async def deprecate_submission(
     if_match: str | None = Header(default=None, alias="If-Match"),
 ) -> Any:
     try:
-        current = await governance.get_submission(
-            submission_id, user_id=user.id, is_admin=True
-        )
+        current = await governance.get_submission(submission_id, user_id=user.id, is_admin=True)
     except SubmissionNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -403,9 +381,7 @@ async def deprecate_submission(
         ) from None
 
     response.headers["ETag"] = _etag_for_submission(deprecated)
-    return _serialize_submission(
-        deprecated, actor_user_id=user.id, actor_is_admin=True
-    )
+    return _serialize_submission(deprecated, actor_user_id=user.id, actor_is_admin=True)
 
 
 # ---------- GET /approved ----------

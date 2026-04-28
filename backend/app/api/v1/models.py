@@ -158,10 +158,7 @@ def transform_model_info(raw_models: list[dict[str, Any]]) -> ModelListResponse:
         # model_id 추출 — litellm_params.model 우선, 없으면 model_name
         litellm_params = entry.get("litellm_params") or {}
         model_id = (
-            litellm_params.get("model")
-            or entry.get("model")
-            or entry.get("model_name")
-            or ""
+            litellm_params.get("model") or entry.get("model") or entry.get("model_name") or ""
         )
         if not model_id:
             continue

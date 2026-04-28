@@ -333,9 +333,7 @@ async def mark_read(
     raw = await underlying.hgetall(key)
     obj = _from_storage(raw)
     if obj is None:
-        raise NotificationNotFoundError(
-            detail=f"알림을 찾을 수 없습니다: id={notification_id!r}"
-        )
+        raise NotificationNotFoundError(detail=f"알림을 찾을 수 없습니다: id={notification_id!r}")
 
     if obj.read:
         # 이미 읽음 — 응답은 그대로 반환 (멱등)
@@ -397,9 +395,7 @@ async def delete_notification(
     key = _full_key(user_id, notification_id)
     exists = await underlying.exists(key)
     if not exists:
-        raise NotificationNotFoundError(
-            detail=f"알림을 찾을 수 없습니다: id={notification_id!r}"
-        )
+        raise NotificationNotFoundError(detail=f"알림을 찾을 수 없습니다: id={notification_id!r}")
     pipe = underlying.pipeline()
     pipe.delete(key)
     pipe.zrem(_full_index_key(user_id), notification_id)

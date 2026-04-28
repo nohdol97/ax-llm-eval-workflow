@@ -60,7 +60,10 @@ export function TopBar() {
   const bellRef = useRef<HTMLDivElement>(null);
   const basketRef = useRef<HTMLDivElement>(null);
 
-  const projects = projectsQuery.data?.projects ?? [];
+  const projects = useMemo(
+    () => projectsQuery.data?.projects ?? [],
+    [projectsQuery.data?.projects]
+  );
   const currentProject = projects.find((p) => p.id === projectId) ?? projects[0];
 
   // 프로젝트 목록 로드 시 초기 동기화

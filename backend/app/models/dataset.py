@@ -82,15 +82,9 @@ class UploadMappingRequest(BaseModel):
     이 모델로 파싱된다. 입력 컬럼은 최소 1개 이상이어야 한다.
     """
 
-    input_columns: list[str] = Field(
-        ..., min_length=1, description="입력 컬럼명 목록 (1개 이상)"
-    )
-    output_column: str = Field(
-        ..., min_length=1, description="기대 출력 컬럼명"
-    )
-    metadata_columns: list[str] = Field(
-        default_factory=list, description="메타데이터 컬럼 (선택)"
-    )
+    input_columns: list[str] = Field(..., min_length=1, description="입력 컬럼명 목록 (1개 이상)")
+    output_column: str = Field(..., min_length=1, description="기대 출력 컬럼명")
+    metadata_columns: list[str] = Field(default_factory=list, description="메타데이터 컬럼 (선택)")
 
 
 class FromItemsRequest(BaseModel):
@@ -101,18 +95,14 @@ class FromItemsRequest(BaseModel):
     """
 
     project_id: str = Field(..., min_length=1, description="대상 프로젝트 ID")
-    source_experiment_id: str = Field(
-        ..., min_length=1, description="원본 실험 ID"
-    )
+    source_experiment_id: str = Field(..., min_length=1, description="원본 실험 ID")
     item_ids: list[str] = Field(
         ...,
         min_length=1,
         max_length=100,
         description="복사할 아이템 ID 목록 (1~100건, bulk 한도)",
     )
-    new_dataset_name: str = Field(
-        ..., min_length=1, max_length=200, description="새 데이터셋 이름"
-    )
+    new_dataset_name: str = Field(..., min_length=1, max_length=200, description="새 데이터셋 이름")
     description: str | None = Field(None, description="새 데이터셋 설명 (선택)")
 
 
@@ -121,9 +111,7 @@ class FromItemsResponse(BaseModel):
 
     dataset_name: str = Field(..., description="새로 만든 데이터셋 이름")
     items_created: int = Field(..., ge=0, description="실제 생성된 아이템 수")
-    status: Literal["completed", "partial", "failed"] = Field(
-        ..., description="처리 상태"
-    )
+    status: Literal["completed", "partial", "failed"] = Field(..., description="처리 상태")
 
 
 class PreviewItem(BaseModel):

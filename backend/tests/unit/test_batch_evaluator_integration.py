@@ -69,9 +69,7 @@ def _make_request(
         name="eval-exp",
         prompt_configs=[PromptConfig(name="prompt-1", version=1)],
         dataset_name=dataset_name,
-        model_configs=[
-            ModelConfig(model="model-a", parameters={"temperature": 0.0})
-        ],
+        model_configs=[ModelConfig(model="model-a", parameters={"temperature": 0.0})],
         evaluators=evaluators or [],
         concurrency=2,
     )
@@ -83,9 +81,7 @@ def runner_with_pipeline(
     litellm_client: MockLiteLLMProxy,
     redis_client: MockRedisClient,
 ) -> BatchExperimentRunner:
-    pipeline = EvaluationPipeline(
-        langfuse=langfuse_client, litellm_client=litellm_client
-    )
+    pipeline = EvaluationPipeline(langfuse=langfuse_client, litellm_client=litellm_client)
     return BatchExperimentRunner(
         langfuse=langfuse_client,
         litellm=litellm_client,
@@ -120,9 +116,7 @@ class TestBatchExperimentEvaluatorScores:
                 )
             ]
         )
-        response = await runner_with_pipeline.create_experiment(
-            request=request, user_id="u-1"
-        )
+        response = await runner_with_pipeline.create_experiment(request=request, user_id="u-1")
         for task in list(runner_with_pipeline._tasks.values()):
             await task
 
@@ -136,9 +130,7 @@ class TestBatchExperimentEvaluatorScores:
         assert float(run_raw["total_score_sum"]) == pytest.approx(3.0)
 
         # avg_score 계산은 _run_summary에서 수행
-        summary = await runner_with_pipeline._run_summary(
-            response.experiment_id, run_name
-        )
+        summary = await runner_with_pipeline._run_summary(response.experiment_id, run_name)
         assert summary["avg_score"] == pytest.approx(1.0)
 
     async def test_no_evaluators_keeps_phase4_behavior(
@@ -152,9 +144,7 @@ class TestBatchExperimentEvaluatorScores:
         litellm_client.set_response("any")
 
         request = _make_request(evaluators=[])
-        response = await runner_with_pipeline.create_experiment(
-            request=request, user_id="u-1"
-        )
+        response = await runner_with_pipeline.create_experiment(request=request, user_id="u-1")
         for task in list(runner_with_pipeline._tasks.values()):
             await task
 
@@ -194,9 +184,7 @@ class TestBatchExperimentEvaluatorScores:
                 ),
             ]
         )
-        response = await runner_with_pipeline.create_experiment(
-            request=request, user_id="u-1"
-        )
+        response = await runner_with_pipeline.create_experiment(request=request, user_id="u-1")
         for task in list(runner_with_pipeline._tasks.values()):
             await task
 
@@ -239,9 +227,7 @@ class TestBatchExperimentWeightValidation:
             ]
         )
         with pytest.raises(LabsError) as ei:
-            await runner_with_pipeline.create_experiment(
-                request=request, user_id="u-1"
-            )
+            await runner_with_pipeline.create_experiment(request=request, user_id="u-1")
         assert "가중치" in str(ei.value.detail)
 
     async def test_valid_weights_passes(
@@ -268,17 +254,13 @@ class TestBatchExperimentWeightValidation:
                 ),
             ]
         )
-        response = await runner_with_pipeline.create_experiment(
-            request=request, user_id="u-1"
-        )
+        response = await runner_with_pipeline.create_experiment(request=request, user_id="u-1")
         for task in list(runner_with_pipeline._tasks.values()):
             await task
 
         # 정상 종료 — completed
         underlying = _underlying(redis_client := runner_with_pipeline._redis)
-        raw = await underlying.hgetall(
-            _full_key(redis_client, _exp_key(response.experiment_id))
-        )
+        raw = await underlying.hgetall(_full_key(redis_client, _exp_key(response.experiment_id)))
         assert raw["status"] == "completed"
 
 
@@ -312,9 +294,7 @@ class TestBatchEvaluatorPipelineLazyInit:
                 )
             ]
         )
-        response = await runner.create_experiment(
-            request=request, user_id="u-1"
-        )
+        response = await runner.create_experiment(request=request, user_id="u-1")
         for task in list(runner._tasks.values()):
             await task
 

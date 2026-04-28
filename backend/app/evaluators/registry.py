@@ -107,9 +107,7 @@ _METADATA: dict[str, dict[str, Any]] = {
         "config_schema": {
             "type": "object",
             "required": ["required_keys"],
-            "properties": {
-                "required_keys": {"type": "array", "items": {"type": "string"}}
-            },
+            "properties": {"required_keys": {"type": "array", "items": {"type": "string"}}},
         },
     },
     "levenshtein_similarity": {

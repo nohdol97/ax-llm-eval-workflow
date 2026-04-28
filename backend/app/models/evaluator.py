@@ -39,9 +39,7 @@ class TestCase(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    output: str | dict[str, Any] | list[Any] = Field(
-        ..., description="평가 대상 출력 (모델 응답)"
-    )
+    output: str | dict[str, Any] | list[Any] = Field(..., description="평가 대상 출력 (모델 응답)")
     expected: str | dict[str, Any] | list[Any] | None = Field(
         default=None, description="정답 (선택)"
     )
@@ -67,9 +65,7 @@ class ValidateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     code: str = Field(..., min_length=1, description="평가 코드 (Python)")
-    test_cases: list[TestCase] = Field(
-        default_factory=list, description="실행할 test_case 목록"
-    )
+    test_cases: list[TestCase] = Field(default_factory=list, description="실행할 test_case 목록")
 
 
 class ValidateResponse(BaseModel):

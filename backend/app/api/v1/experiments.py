@@ -320,25 +320,15 @@ async def stream_experiment(
     """
     # 소유자 검증 — Hash에서 owner_user_id 비교
     # RedisClient.underlying / MockRedisClient._client / fallback redis
-    underlying: Any = (
-        getattr(redis, "underlying", None)
-        or getattr(redis, "_client", None)
-        or redis
-    )
+    underlying: Any = getattr(redis, "underlying", None) or getattr(redis, "_client", None) or redis
     raw = await underlying.hgetall(f"ax:experiment:{experiment_id}")
     if not raw:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="experiment not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="experiment not found")
     # bytes/str 모두 수용
     owner_value = raw.get("owner_user_id") or raw.get(b"owner_user_id")
-    owner = (
-        owner_value.decode("utf-8") if isinstance(owner_value, bytes) else owner_value
-    )
+    owner = owner_value.decode("utf-8") if isinstance(owner_value, bytes) else owner_value
     if user.role != "admin" and owner is not None and owner != user.id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="experiment not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="experiment not found")
 
     return await sse_response(
         runner.stream_progress(

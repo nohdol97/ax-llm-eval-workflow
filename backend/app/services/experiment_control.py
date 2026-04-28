@@ -252,9 +252,7 @@ class ExperimentControl:
             return meta
         owner = str(meta.get("started_by", "") or meta.get("owner_user_id", ""))
         if owner and owner != user_id:
-            raise ExperimentForbiddenError(
-                detail=f"본인 실험만 제어 가능합니다 (owner={owner})."
-            )
+            raise ExperimentForbiddenError(detail=f"본인 실험만 제어 가능합니다 (owner={owner}).")
         return meta
 
     async def _read_meta(self, experiment_id: str) -> dict[str, Any]:
@@ -295,9 +293,7 @@ class ExperimentControl:
             return
         if if_match.strip() in ("*", etag):
             return
-        raise ExperimentETagMismatchError(
-            detail=f"If-Match={if_match!r} != ETag={etag!r}"
-        )
+        raise ExperimentETagMismatchError(detail=f"If-Match={if_match!r} != ETag={etag!r}")
 
     # ---------- Lua 호출 ----------
     async def _invoke_transition(
@@ -335,9 +331,7 @@ class ExperimentControl:
                 current = _parse_state_conflict(message.split("STATE_CONFLICT", 1)[1])
                 raise ExperimentStateConflictError(
                     detail=(
-                        f"비합법 상태 전이: 현재={current!r}"
-                        if current
-                        else "비합법 상태 전이"
+                        f"비합법 상태 전이: 현재={current!r}" if current else "비합법 상태 전이"
                     ),
                     extras={"current_status": current} if current else None,
                 ) from exc
@@ -415,9 +409,7 @@ class ExperimentControl:
         """
         meta = await self._read_meta(experiment_id)
         if not meta:
-            raise ExperimentNotFoundError(
-                detail=f"experiment_id={experiment_id!r} not found"
-            )
+            raise ExperimentNotFoundError(detail=f"experiment_id={experiment_id!r} not found")
 
         # 가드 — running/paused 거부 (Lua는 read-only, 부작용 없음)
         try:
@@ -469,9 +461,7 @@ class ExperimentControl:
         project_id = str(meta.get("project_id", ""))
         if project_id:
             try:
-                await raw_client.zrem(
-                    f"ax:project:{project_id}:experiments", experiment_id
-                )
+                await raw_client.zrem(f"ax:project:{project_id}:experiments", experiment_id)
             except Exception as exc:  # noqa: BLE001  # pragma: no cover
                 logger.warning(
                     "experiment_zrem_failed",

@@ -74,9 +74,7 @@ class ETagMismatchError(LabsError):
 
 
 # ---------- 헬퍼 ----------
-def _ensure_project(
-    project_id: str, projects: list[ProjectConfig]
-) -> ProjectConfig:
+def _ensure_project(project_id: str, projects: list[ProjectConfig]) -> ProjectConfig:
     """``project_id``가 등록 프로젝트인지 검증."""
     for project in projects:
         if project.id == project_id:
@@ -244,9 +242,7 @@ def get_prompt(
         # MockLangfuseClient는 LangfuseNotFoundError, 실 SDK는 LangfuseError
         message = str(exc).lower()
         if "not found" in message:
-            raise PromptNotFoundError(
-                detail=f"prompt name={name!r} not found"
-            ) from exc
+            raise PromptNotFoundError(detail=f"prompt name={name!r} not found") from exc
         raise
 
     return _prompt_to_detail(prompt_obj)
@@ -307,9 +303,7 @@ def list_prompt_versions(
 def create_prompt(
     body: PromptCreate,
     response: Response,
-    idempotency_key: str | None = Header(
-        default=None, alias="Idempotency-Key", max_length=128
-    ),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key", max_length=128),
     _user: User = Depends(require_role("user")),
     projects: list[ProjectConfig] = Depends(get_project_configs),
     langfuse: LangfuseClient = Depends(get_langfuse_client),
@@ -324,9 +318,7 @@ def create_prompt(
 
     if idempotency_key is not None:
         if not idempotency_key.strip():
-            raise HTTPException(
-                status_code=400, detail="Idempotency-Key가 비어 있습니다."
-            )
+            raise HTTPException(status_code=400, detail="Idempotency-Key가 비어 있습니다.")
         response.headers["Idempotency-Key"] = idempotency_key
 
     # Langfuse SDK는 chat 본문도 ``prompt`` 인자로 받는다 (str | list[dict]).
@@ -337,9 +329,7 @@ def create_prompt(
         try:
             prompt_payload = json.dumps(prompt_payload, ensure_ascii=False)
         except (TypeError, ValueError) as exc:
-            raise HTTPException(
-                status_code=422, detail=f"chat prompt 직렬화 실패: {exc}"
-            ) from exc
+            raise HTTPException(status_code=422, detail=f"chat prompt 직렬화 실패: {exc}") from exc
 
     try:
         created = langfuse.create_prompt(
@@ -410,9 +400,7 @@ def update_prompt_labels(
         )
 
     try:
-        updated = langfuse.update_prompt_labels(
-            name=name, version=version, labels=body.labels
-        )
+        updated = langfuse.update_prompt_labels(name=name, version=version, labels=body.labels)
     except Exception as exc:  # noqa: BLE001
         message = str(exc).lower()
         if "not found" in message:

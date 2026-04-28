@@ -387,20 +387,14 @@ class EvaluatorGovernanceService:
         """
         submission = await self._read(submission_id)
         if submission is None:
-            raise SubmissionNotFoundError(
-                detail=f"submission_id={submission_id!r} not found"
-            )
+            raise SubmissionNotFoundError(detail=f"submission_id={submission_id!r} not found")
         if not is_admin and submission.submitted_by != user_id:
-            raise SubmissionNotFoundError(
-                detail=f"submission_id={submission_id!r} not found"
-            )
+            raise SubmissionNotFoundError(detail=f"submission_id={submission_id!r} not found")
         return submission
 
     async def _read(self, submission_id: str) -> Submission | None:
         underlying = _underlying(self._redis)
-        raw = await underlying.hgetall(
-            _full(self._redis, _submission_key(submission_id))
-        )
+        raw = await underlying.hgetall(_full(self._redis, _submission_key(submission_id)))
         return _from_storage(raw)
 
     # ------------------------------------------------------------------ #
@@ -440,8 +434,7 @@ class EvaluatorGovernanceService:
             raw_ids = []
 
         ids: list[str] = [
-            rid.decode("utf-8") if isinstance(rid, bytes) else str(rid)
-            for rid in raw_ids
+            rid.decode("utf-8") if isinstance(rid, bytes) else str(rid) for rid in raw_ids
         ]
 
         # admin + status 필터 미지정이면 결과를 그대로 사용
@@ -485,9 +478,7 @@ class EvaluatorGovernanceService:
         """admin 승인 — pending → approved. 알림 best-effort 생성."""
         sub = await self._read(submission_id)
         if sub is None:
-            raise SubmissionNotFoundError(
-                detail=f"submission_id={submission_id!r} not found"
-            )
+            raise SubmissionNotFoundError(detail=f"submission_id={submission_id!r} not found")
         if sub.status != "pending":
             raise SubmissionStateConflictError(
                 detail=f"승인 가능 상태가 아닙니다 (현재: {sub.status})"
@@ -532,9 +523,7 @@ class EvaluatorGovernanceService:
 
         sub = await self._read(submission_id)
         if sub is None:
-            raise SubmissionNotFoundError(
-                detail=f"submission_id={submission_id!r} not found"
-            )
+            raise SubmissionNotFoundError(detail=f"submission_id={submission_id!r} not found")
         if sub.status != "pending":
             raise SubmissionStateConflictError(
                 detail=f"반려 가능 상태가 아닙니다 (현재: {sub.status})"
@@ -575,9 +564,7 @@ class EvaluatorGovernanceService:
         """admin 폐기 — approved → deprecated. 신규 사용 차단."""
         sub = await self._read(submission_id)
         if sub is None:
-            raise SubmissionNotFoundError(
-                detail=f"submission_id={submission_id!r} not found"
-            )
+            raise SubmissionNotFoundError(detail=f"submission_id={submission_id!r} not found")
         if sub.status != "approved":
             raise SubmissionStateConflictError(
                 detail=f"폐기 가능 상태가 아닙니다 (현재: {sub.status})"
@@ -621,9 +608,7 @@ class EvaluatorGovernanceService:
         underlying = _underlying(self._redis)
 
         try:
-            raw_ids = await underlying.zrevrange(
-                _full(self._redis, _status_key("approved")), 0, -1
-            )
+            raw_ids = await underlying.zrevrange(_full(self._redis, _status_key("approved")), 0, -1)
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "list_approved_index_fetch_failed",
@@ -632,8 +617,7 @@ class EvaluatorGovernanceService:
             raw_ids = []
 
         ids: list[str] = [
-            rid.decode("utf-8") if isinstance(rid, bytes) else str(rid)
-            for rid in raw_ids
+            rid.decode("utf-8") if isinstance(rid, bytes) else str(rid) for rid in raw_ids
         ]
         items: list[Submission] = []
         for sid in ids:

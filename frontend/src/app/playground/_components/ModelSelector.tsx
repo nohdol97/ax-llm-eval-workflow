@@ -38,18 +38,7 @@ export function ModelSelector({ value, onChange, models }: ModelSelectorProps) {
     [value, models]
   );
 
-  if (!selected) {
-    return (
-      <button
-        type="button"
-        disabled
-        className="flex h-8 min-w-[220px] items-center justify-between gap-2 rounded-md border border-zinc-700 bg-zinc-800 px-3 text-sm text-zinc-500"
-      >
-        모델 로드 중…
-      </button>
-    );
-  }
-
+  // Rules of Hooks: 모든 hook은 early return 이전에 호출되어야 함.
   useEffect(() => {
     if (!open) return;
     const onClick = (e: MouseEvent) => {
@@ -70,6 +59,18 @@ export function ModelSelector({ value, onChange, models }: ModelSelectorProps) {
       document.removeEventListener("keydown", onKey);
     };
   }, [open]);
+
+  if (!selected) {
+    return (
+      <button
+        type="button"
+        disabled
+        className="flex h-8 min-w-[220px] items-center justify-between gap-2 rounded-md border border-zinc-700 bg-zinc-800 px-3 text-sm text-zinc-500"
+      >
+        모델 로드 중…
+      </button>
+    );
+  }
 
   return (
     <div ref={containerRef} className="relative">

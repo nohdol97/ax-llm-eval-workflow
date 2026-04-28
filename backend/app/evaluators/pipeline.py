@@ -138,9 +138,7 @@ class EvaluationPipeline:
             weight_error = str(exc)
 
         # 각 evaluator 병렬 실행
-        tasks = [
-            self._execute_one(ev, output, expected, metadata) for ev in evaluators
-        ]
+        tasks = [self._execute_one(ev, output, expected, metadata) for ev in evaluators]
         raw_results = await asyncio.gather(*tasks, return_exceptions=False)
 
         scores: dict[str, float | None] = {}
@@ -285,9 +283,7 @@ class EvaluationPipeline:
         metadata: dict[str, Any],
     ) -> float | None:
         """외부 runner(judge / custom_code) 호출. sync/async 자동 판별."""
-        result = runner(
-            ev=ev, output=output, expected=expected, metadata=metadata
-        )
+        result = runner(ev=ev, output=output, expected=expected, metadata=metadata)
         if inspect.isawaitable(result):
             result = await result
         if result is None:
@@ -305,9 +301,7 @@ class EvaluationPipeline:
     # ------------------------------------------------------------------ #
     # Langfuse 기록
     # ------------------------------------------------------------------ #
-    async def _record_scores(
-        self, trace_id: str, scores: dict[str, float | None]
-    ) -> None:
+    async def _record_scores(self, trace_id: str, scores: dict[str, float | None]) -> None:
         """Langfuse에 score 기록. None은 기록하지 않음.
 
         score 메서드가 sync인 경우 to_thread로 위임하여 이벤트 루프 블로킹 방지.
@@ -326,9 +320,7 @@ class EvaluationPipeline:
                     error=str(exc),
                 )
 
-    async def _call_langfuse_score(
-        self, trace_id: str, name: str, value: float
-    ) -> None:
+    async def _call_langfuse_score(self, trace_id: str, name: str, value: float) -> None:
         """Langfuse score 호출 (sync/async 자동 처리)."""
         score_fn = getattr(self._langfuse, "score", None)
         if score_fn is None:

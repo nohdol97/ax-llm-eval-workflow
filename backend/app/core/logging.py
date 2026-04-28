@@ -22,9 +22,7 @@ _REGEX_EMAIL = re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.-]+\b")
 _REDACTED = "[REDACTED]"
 
 
-def _redact_pii_processor(
-    _logger: Any, _method_name: str, event_dict: EventDict
-) -> EventDict:
+def _redact_pii_processor(_logger: Any, _method_name: str, event_dict: EventDict) -> EventDict:
     """이벤트 딕셔너리 내 모든 string 값에 대해 PII 마스킹 적용."""
     for key, value in list(event_dict.items()):
         if isinstance(value, str):
@@ -40,9 +38,7 @@ def _redact_string(value: str) -> str:
     return redacted
 
 
-def _add_log_level_upper(
-    _logger: Any, method_name: str, event_dict: EventDict
-) -> EventDict:
+def _add_log_level_upper(_logger: Any, method_name: str, event_dict: EventDict) -> EventDict:
     """level 필드를 대문자로 표준화."""
     event_dict["level"] = method_name.upper()
     return event_dict
@@ -109,6 +105,4 @@ def is_json_formatter_active() -> bool:
     except Exception:
         return False
     processors = cfg.get("processors", [])
-    return any(
-        isinstance(p, structlog.processors.JSONRenderer) for p in processors
-    )
+    return any(isinstance(p, structlog.processors.JSONRenderer) for p in processors)

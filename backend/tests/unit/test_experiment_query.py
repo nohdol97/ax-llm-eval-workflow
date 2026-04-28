@@ -77,9 +77,7 @@ async def _seed_experiment(
 
     # ZSet 인덱스 — score=created_at_unix (테스트는 시간 단조 증가 가정)
     score = time.time()
-    await redis._client.zadd(
-        f"ax:project:{project_id}:experiments", {experiment_id: score}
-    )
+    await redis._client.zadd(f"ax:project:{project_id}:experiments", {experiment_id: score})
 
     runs = runs or []
     runs_set_key = f"ax:experiment:{experiment_id}:runs"
@@ -110,7 +108,8 @@ def make_query(redis_client: MockRedisClient) -> Any:
     def _factory() -> ExperimentQuery:
         # langfuse는 본 단위 테스트 범위에서 호출되지 않음 — None 인자 회피용 stub.
         return ExperimentQuery(
-            redis=redis_client, langfuse=object()  # type: ignore[arg-type]
+            redis=redis_client,
+            langfuse=object(),  # type: ignore[arg-type]
         )
 
     return _factory
@@ -156,9 +155,7 @@ class TestGetExperiment:
             assert run.avg_score == pytest.approx(0.84)
             assert run.avg_latency_ms == pytest.approx(100.0)  # 5000/50
         # config_snapshot
-        assert detail.config_snapshot == {
-            "prompt_configs": [{"name": "x", "version": 3}]
-        }
+        assert detail.config_snapshot == {"prompt_configs": [{"name": "x", "version": 3}]}
         assert detail.evaluator_summary == {}
 
     async def test_get_experiment_not_found(
@@ -189,9 +186,7 @@ class TestGetExperiment:
     async def test_get_experiment_project_filter_mismatch(
         self, redis_client: MockRedisClient, make_query: Any
     ) -> None:
-        await _seed_experiment(
-            redis_client, "e4", project_id="proj-a", started_by="user-1"
-        )
+        await _seed_experiment(redis_client, "e4", project_id="proj-a", started_by="user-1")
         query = make_query()
         with pytest.raises(ExperimentNotFoundError):
             await query.get_experiment(
@@ -245,9 +240,7 @@ class TestListExperiments:
         await _seed_experiment(redis_client, "e2", started_by="user-1")
         await _seed_experiment(redis_client, "e3", started_by="alice")
         query = make_query()
-        resp = await query.list_experiments(
-            project_id="proj-a", user_id="user-1", user_role="user"
-        )
+        resp = await query.list_experiments(project_id="proj-a", user_id="user-1", user_role="user")
         assert isinstance(resp, ExperimentListResponse)
         assert resp.total == 2
         ids = {item.experiment_id for item in resp.items}
@@ -264,9 +257,7 @@ class TestListExperiments:
         )
         assert resp.total == 2
 
-    async def test_list_status_filter(
-        self, redis_client: MockRedisClient, make_query: Any
-    ) -> None:
+    async def test_list_status_filter(self, redis_client: MockRedisClient, make_query: Any) -> None:
         await _seed_experiment(redis_client, "e1", status="running")
         await _seed_experiment(redis_client, "e2", status="completed")
         query = make_query()
@@ -288,9 +279,7 @@ class TestListExperiments:
         assert resp.total == 1
         assert resp.items[0].experiment_id == "e1"
 
-    async def test_list_pagination(
-        self, redis_client: MockRedisClient, make_query: Any
-    ) -> None:
+    async def test_list_pagination(self, redis_client: MockRedisClient, make_query: Any) -> None:
         for i in range(5):
             await _seed_experiment(redis_client, f"e{i}", name=f"exp-{i}")
         query = make_query()
@@ -318,9 +307,7 @@ class TestListExperiments:
         ids2 = {item.experiment_id for item in page2.items}
         assert ids1.isdisjoint(ids2)
 
-    async def test_list_empty(
-        self, redis_client: MockRedisClient, make_query: Any
-    ) -> None:
+    async def test_list_empty(self, redis_client: MockRedisClient, make_query: Any) -> None:
         query = make_query()
         resp = await query.list_experiments(
             project_id="proj-empty", user_id="user-1", user_role="user"
@@ -334,20 +321,14 @@ class TestListExperiments:
         """ZSet에 expired_id가 있고 Hash가 없으면 ZREM으로 정리된다."""
         # 정상 1건 + 만료된 1건 (Hash 없음, ZSet에만 존재)
         await _seed_experiment(redis_client, "live-1")
-        await redis_client._client.zadd(
-            "ax:project:proj-a:experiments", {"expired-1": time.time()}
-        )
+        await redis_client._client.zadd("ax:project:proj-a:experiments", {"expired-1": time.time()})
 
         query = make_query()
-        resp = await query.list_experiments(
-            project_id="proj-a", user_id="user-1", user_role="user"
-        )
+        resp = await query.list_experiments(project_id="proj-a", user_id="user-1", user_role="user")
         assert resp.total == 1
         assert resp.items[0].experiment_id == "live-1"
         # ZSet에서 expired-1이 제거되었는지 확인
-        score = await redis_client._client.zscore(
-            "ax:project:proj-a:experiments", "expired-1"
-        )
+        score = await redis_client._client.zscore("ax:project:proj-a:experiments", "expired-1")
         assert score is None
 
     async def test_list_sort_order_desc_default(
@@ -383,18 +364,14 @@ class TestProgressCalculation:
     async def test_progress_zero_total(
         self, redis_client: MockRedisClient, make_query: Any
     ) -> None:
-        await _seed_experiment(
-            redis_client, "e0", total_items=0, completed_items=0, failed_items=0
-        )
+        await _seed_experiment(redis_client, "e0", total_items=0, completed_items=0, failed_items=0)
         query = make_query()
         detail = await query.get_experiment("e0", user_id="user-1", user_role="user")
         assert detail.progress["total"] == 0
         assert detail.progress["percentage"] == 0.0
         assert detail.progress["eta_sec"] is None
 
-    async def test_progress_completed(
-        self, redis_client: MockRedisClient, make_query: Any
-    ) -> None:
+    async def test_progress_completed(self, redis_client: MockRedisClient, make_query: Any) -> None:
         await _seed_experiment(
             redis_client,
             "e1",
