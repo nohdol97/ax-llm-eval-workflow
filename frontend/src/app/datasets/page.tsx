@@ -39,10 +39,12 @@ export default function DatasetsPage() {
 
   const list: DatasetSummary[] = useMemo(() => {
     const raw = data;
-    if (!raw) return [];
-    if ("datasets" in raw && Array.isArray(raw.datasets)) return raw.datasets;
-    if ("items" in raw && Array.isArray(raw.items))
-      return raw.items as DatasetSummary[];
+    // 방어: API 가 비-JSON 응답(HTML 등)을 string 으로 반환한 경우 "in" 연산자가
+    // TypeError 를 던지지 않도록 object 인지 먼저 확인한다.
+    if (!raw || typeof raw !== "object") return [];
+    const r = raw as Record<string, unknown>;
+    if (Array.isArray(r.datasets)) return r.datasets as DatasetSummary[];
+    if (Array.isArray(r.items)) return r.items as DatasetSummary[];
     return [];
   }, [data]);
 

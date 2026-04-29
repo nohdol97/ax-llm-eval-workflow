@@ -42,9 +42,10 @@ export function WizardStep1({ state, onChange }: WizardStep1Props) {
     [promptListResp]
   );
   const datasets = useMemo<DatasetSummary[]>(() => {
-    if (!datasetListResp) return [];
-    if ("datasets" in datasetListResp) return datasetListResp.datasets;
-    if ("items" in datasetListResp) return datasetListResp.items;
+    if (!datasetListResp || typeof datasetListResp !== "object") return [];
+    const r = datasetListResp as Record<string, unknown>;
+    if (Array.isArray(r.datasets)) return r.datasets as DatasetSummary[];
+    if (Array.isArray(r.items)) return r.items as DatasetSummary[];
     return [];
   }, [datasetListResp]);
 

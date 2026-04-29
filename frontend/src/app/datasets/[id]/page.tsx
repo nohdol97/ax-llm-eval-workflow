@@ -49,13 +49,13 @@ export default function DatasetDetailPage({
 
   const dataset: DatasetSummary | null = useMemo(() => {
     const raw = listQuery.data;
-    if (!raw) return null;
-    const list: DatasetSummary[] =
-      "datasets" in raw && Array.isArray(raw.datasets)
-        ? raw.datasets
-        : "items" in raw && Array.isArray(raw.items)
-          ? (raw.items as DatasetSummary[])
-          : [];
+    if (!raw || typeof raw !== "object") return null;
+    const r = raw as Record<string, unknown>;
+    const list: DatasetSummary[] = Array.isArray(r.datasets)
+      ? (r.datasets as DatasetSummary[])
+      : Array.isArray(r.items)
+        ? (r.items as DatasetSummary[])
+        : [];
     return list.find((d) => d.name === name) ?? null;
   }, [listQuery.data, name]);
 
