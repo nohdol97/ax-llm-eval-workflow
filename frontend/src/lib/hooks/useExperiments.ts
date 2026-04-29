@@ -100,8 +100,11 @@ export function useExperimentList(
     queryKey: experimentKeys.list(projectId, status, page),
     queryFn: async () => {
       if (config.useMock) {
-        const items = mockToExperimentSummary();
-        return { items, total: items.length, page, page_size: pageSize };
+        const all = mockToExperimentSummary();
+        const filtered = status ? all.filter((e) => e.status === status) : all;
+        const start = (page - 1) * pageSize;
+        const items = filtered.slice(start, start + pageSize);
+        return { items, total: filtered.length, page, page_size: pageSize };
       }
       return apiRequest<PaginatedResponse<ExperimentSummary>>(
         "/experiments",

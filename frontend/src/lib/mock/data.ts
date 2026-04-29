@@ -301,6 +301,117 @@ export const datasetItems: Record<string, DatasetItem[]> = {
       metadata: { language: "en", domain: "review" },
     },
   ],
+  ds_summary_test_50: [
+    {
+      id: "sum_1",
+      input: {
+        article:
+          "정부는 어제 기후위기 대응을 위한 종합대책을 발표했다. 2030년까지 탄소배출량을 2018년 대비 40% 감축하는 목표를 명시했다.",
+      },
+      expectedOutput:
+        "- 정부, 기후위기 대응 종합대책 발표\n- 2030년 탄소배출량 -40% 목표\n- 2018년 대비 기준",
+      metadata: { domain: "news", topic: "climate" },
+    },
+    {
+      id: "sum_2",
+      input: {
+        article:
+          "한국은행이 기준금리를 0.25%포인트 인상한 3.75%로 결정했다. 인플레이션 압력이 여전한 가운데 통화정책의 긴축 기조를 유지한다는 입장이다.",
+      },
+      expectedOutput:
+        "- 한국은행 기준금리 +0.25%p 인상 (3.75%)\n- 인플레이션 압력 지속\n- 긴축 기조 유지",
+      metadata: { domain: "news", topic: "finance" },
+    },
+    {
+      id: "sum_3",
+      input: {
+        article:
+          "삼성전자가 차세대 HBM4 메모리 양산을 앞당겼다. 엔비디아의 차세대 GPU에 공급될 예정이며 2026년 하반기 본격 출하 계획이다.",
+      },
+      expectedOutput:
+        "- 삼성전자 HBM4 양산 일정 단축\n- 엔비디아 차세대 GPU 공급 예정\n- 2026년 하반기 본격 출하",
+      metadata: { domain: "news", topic: "tech" },
+    },
+  ],
+  ds_rag_eval_200: [
+    {
+      id: "rag_1",
+      input: {
+        question: "Labs의 데이터셋 업로드 최대 크기는?",
+        context:
+          "ax-llm-eval-workflow는 데이터셋 파일 업로드를 지원하며, 최대 10MB의 CSV/JSONL 파일을 받는다.",
+      },
+      expectedOutput: "10MB",
+      metadata: { source: "docs/FEATURES.md", topic: "upload" },
+    },
+    {
+      id: "rag_2",
+      input: {
+        question: "Labs Auto-Eval의 일일 비용 한도는 어떻게 설정합니까?",
+        context:
+          "AutoEvalPolicy 의 daily_cost_limit_usd 필드에 USD 단위로 입력하며, 한도 초과 시 run 이 자동 skip 된다.",
+      },
+      expectedOutput:
+        "AutoEvalPolicy.daily_cost_limit_usd 필드에 USD 값 입력. 초과 시 run 자동 skip.",
+      metadata: { source: "AGENT_EVAL.md", topic: "auto_eval" },
+    },
+    {
+      id: "rag_3",
+      input: {
+        question: "Review Queue 의 자동 진입 trigger 는 몇 개입니까?",
+        context:
+          "Phase 8-C 명세에 따르면 5가지 trigger 가 정의되어 있다 — auto_eval_low_score, judge_low_confidence, evaluator_disagreement, user_report, manual_addition.",
+      },
+      expectedOutput: "5개",
+      metadata: { source: "AGENT_EVAL.md", topic: "review_queue" },
+    },
+  ],
+  ds_intent_300: [
+    {
+      id: "intent_1",
+      input: { utterance: "내일 회의 시간 알려줘" },
+      expectedOutput: "schedule.query",
+      metadata: { language: "ko", confidence: "high" },
+    },
+    {
+      id: "intent_2",
+      input: { utterance: "이번 달 카드 사용 내역 보여줘" },
+      expectedOutput: "finance.transaction_list",
+      metadata: { language: "ko", confidence: "high" },
+    },
+    {
+      id: "intent_3",
+      input: { utterance: "Set an alarm for 7am tomorrow" },
+      expectedOutput: "alarm.create",
+      metadata: { language: "en", confidence: "high" },
+    },
+    {
+      id: "intent_4",
+      input: { utterance: "음... 아무거나" },
+      expectedOutput: "unknown",
+      metadata: { language: "ko", confidence: "low" },
+    },
+  ],
+  ds_sample_10: [
+    {
+      id: "sample_1",
+      input: { question: "안녕하세요?" },
+      expectedOutput: "안녕하세요! 무엇을 도와드릴까요?",
+      metadata: { type: "greeting" },
+    },
+    {
+      id: "sample_2",
+      input: { question: "오늘 날씨는?" },
+      expectedOutput: "현재 위치를 알려주시면 날씨를 확인해드릴 수 있습니다.",
+      metadata: { type: "weather" },
+    },
+    {
+      id: "sample_3",
+      input: { question: "2 + 2는?" },
+      expectedOutput: "4입니다.",
+      metadata: { type: "arithmetic" },
+    },
+  ],
 };
 
 export const experiments: Experiment[] = [

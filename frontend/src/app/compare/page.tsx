@@ -177,7 +177,15 @@ function ComparePageInner() {
   const eligibleExperiments = useMemo(() => {
     const a = completedList?.items ?? [];
     const b = runningList?.items ?? [];
-    return [...a, ...b];
+    // dedup by experiment_id — backend status 필터가 의도와 다르더라도 React key 중복 방지
+    const seen = new Set<string>();
+    const out: typeof a = [];
+    for (const e of [...a, ...b]) {
+      if (seen.has(e.experiment_id)) continue;
+      seen.add(e.experiment_id);
+      out.push(e);
+    }
+    return out;
   }, [completedList, runningList]);
 
   const initialExperimentId = useMemo(() => {
