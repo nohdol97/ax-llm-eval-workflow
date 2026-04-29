@@ -8,20 +8,22 @@
 
 > **참고**: BUILD_ORDER.md의 책임 분담 표(사내 인프라팀 vs 본 프로젝트)는 단일 운영자가 양 책임을 겸임하더라도 **변경 추적·감사 목적**으로 그대로 유지한다. 본 문서의 셋업 항목은 표의 "사내 인프라팀 책임" 컬럼에 해당하는 작업을 직접 수행하는 형태로 재구성됐다.
 
-**문서 상태**: Draft · **Owner**: _(TBD)_ · **Last Updated**: 2026-04-27
+**문서 상태**: Draft · **Owner**: _(TBD)_ · **Last Updated**: 2026-04-29
 
 ---
 
 ## 목차
 
 1. [큰 그림 — 단일 트랙 셋업 흐름](#0-큰-그림--단일-트랙-셋업-흐름)
-2. [인프라 셋업 9건 (셋업 명세)](#1-인프라-셋업-9건-셋업-명세)
-3. [본 프로젝트 자체 준비 (병렬 진행)](#2-본-프로젝트-자체-준비-병렬-진행)
-4. [결정 사항 10개](#3-결정-사항-10개)
-5. [의존성 우선순위](#4-의존성-우선순위)
-6. [검증 방법 (점진적 3단계)](#5-검증-방법-점진적-3단계)
-7. [Phase 1 Done Definition](#6-phase-1-done-definition)
-8. [셋업 진행 상태 보드](#7-셋업-진행-상태-보드)
+2. [사내 인프라 현황 매핑 (2026-04-29)](#a-사내-인프라-현황-매핑-2026-04-29-기준)
+3. [인프라 셋업 9건 (셋업 명세)](#1-인프라-셋업-9건-셋업-명세)
+4. [본 프로젝트 자체 준비 (병렬 진행)](#2-본-프로젝트-자체-준비-병렬-진행)
+5. [본 프로젝트 배포 작업](#a2-본-프로젝트-배포-작업-self-service)
+6. [결정 사항 10개](#3-결정-사항-10개)
+7. [의존성 우선순위](#4-의존성-우선순위)
+8. [검증 방법 (점진적 3단계)](#5-검증-방법-점진적-3단계)
+9. [Phase 1 Done Definition](#6-phase-1-done-definition)
+10. [셋업 진행 상태 보드](#7-셋업-진행-상태-보드)
 
 ---
 
@@ -62,6 +64,120 @@
 - 결정(§3)을 가장 먼저 확정 — 이후 셋업의 분기점이 됨
 - Mock fixture 기반 TDD로 본 프로젝트 구현이 셋업과 병렬 가능
 - 셋업 9건은 의존성 그래프(§4)를 따라 병렬화 — 단일 운영자라도 Stage 2를 한 번에 1건씩 처리할 필요 없음
+
+---
+
+## A. 사내 인프라 현황 매핑 (2026-04-29 기준)
+
+> 사내 EKS 클러스터 직접 접근 시 즉시 참조용. ArgoCD app 명, namespace, service endpoint, 현재 상태를 일관되게 정리한다. 셋업·디버깅 시 이 표를 먼저 본다.
+
+### A.1 컴포넌트 현황표
+
+| 컴포넌트 | ArgoCD app | namespace / workload | Service endpoint (cluster-internal) | 상태 | 본 프로젝트 사용 |
+|---|---|---|---|---|---|
+| **Langfuse** | `ax-infra-backend-langfuse-dev-apne2` | `langfuse-dev` (web/worker/redis) | `http://langfuse-web.langfuse-dev.svc.cluster.local:3000` | ✅ Healthy | LANGFUSE_HOST |
+| **Langfuse Redis** | (위 app 내) | `langfuse-dev/langfuse-redis` | `redis://langfuse-redis.langfuse-dev.svc.cluster.local:6379` | ✅ Healthy | Redis 옵션 A 사용 시 db=1 |
+| **ai-gateway-auth (auth-service)** | `ax-infra-backend-ai-gateway-auth-dev-apne2` | `default/auth-service` | `http://auth-service.default.svc.cluster.local/.well-known/jwks.json` (확인 필요) | ✅ Healthy | AUTH_JWKS_URL 후보 |
+| **auth-oidc-proxy** | (위 app 내) | `default/auth-oidc-proxy` | `http://auth-oidc-proxy.default.svc.cluster.local` | ✅ Running | OIDC 로그인 흐름 (FE redirect) |
+| **LiteLLM (default)** | `ax-infra-backend-litellm-dev-apne2` | `default/litellm` | — | ❌ **Degraded (ImagePullBackOff)** | 🚨 표준 결정 전 비활성 |
+| **LiteLLM (internal)** | `ax-infra-backend-litellm-internal-dev-apne2` | `litellm-internal/litellm` | `http://litellm.litellm-internal.svc.cluster.local:4000` | ✅ Healthy | **LITELLM_BASE_URL 권장** |
+| **LiteLLM (Helm)** | (Helm release, 비-ArgoCD) | `litellm/litellm` | `http://litellm.litellm.svc.cluster.local:4000` | ✅ Running | 중복 — 정리 대상 |
+| **Prometheus** | `kube-prometheus-stack` (monitoring 또는 observability ns) | Operator + Prometheus + kube-state-metrics + node-exporter | `http://prometheus-operated.<ns>.svc.cluster.local:9090` | ✅ | ServiceMonitor scrape 등록 |
+| **Loki** | `loki` (gateway/read/write/backend/chunks-cache/results-cache/canary) | (loki ns) | `http://loki-gateway.<ns>.svc.cluster.local` | ✅ | promtail 자동 수집 |
+| **Tempo** | `tempo` | (tempo ns) | OTLP receiver: `:4317` (gRPC) / `:4318` (HTTP) — **확인 필요** | ✅ | OTEL_EXPORTER_OTLP_ENDPOINT 후보 |
+| **Grafana** | `grafana` | (monitoring ns) | (UI) | ✅ | dashboard import 대상 |
+| **promtail** | `promtail` | (monitoring ns) | DaemonSet | ✅ | stdout JSON 자동 수집 |
+| **OpenTelemetry Collector** | (목록에 없음) | — | — | ❓ **미식별** | Tempo 직접 OTLP 또는 신설 결정 |
+
+### A.2 본 프로젝트 backend `.env.production` 후보
+
+```bash
+# Langfuse (langfuse-dev ns)
+LANGFUSE_HOST=http://langfuse-web.langfuse-dev.svc.cluster.local:3000
+LANGFUSE_PUBLIC_KEY=<§1.1 발급>
+LANGFUSE_SECRET_KEY=<§1.1 발급>
+
+# LiteLLM (litellm-internal 표준 가정)
+LITELLM_BASE_URL=http://litellm.litellm-internal.svc.cluster.local:4000
+LITELLM_VIRTUAL_KEY=<§1.2 발급>
+
+# Redis (옵션 A: langfuse-redis 임차, db=1)
+REDIS_URL=redis://langfuse-redis.langfuse-dev.svc.cluster.local:6379/1
+
+# ClickHouse (langfuse-dev 내부, readonly)
+CLICKHOUSE_HOST=<langfuse-dev clickhouse svc>.langfuse-dev.svc.cluster.local
+CLICKHOUSE_PORT=9000
+CLICKHOUSE_USER=labs_readonly
+CLICKHOUSE_PASSWORD=<§1.3 발급>
+USE_LANGFUSE_PUBLIC_API_FALLBACK=false   # readonly 미발급 시 true 폴백
+
+# Auth (ai-gateway-auth)
+AUTH_JWKS_URL=http://auth-service.default.svc.cluster.local/.well-known/jwks.json
+AUTH_JWT_AUDIENCE=ax-llm-eval-workflow
+AUTH_JWT_ISSUER=<사내 OIDC issuer>
+AUTH_JWT_ALGORITHMS=["RS256"]
+
+# Observability (Tempo 직접 OTLP 가정 — 확인 후 변경)
+OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo.<tempo-ns>.svc.cluster.local:4318
+LOKI_URL=http://loki-gateway.<loki-ns>.svc.cluster.local
+
+# 환경
+LABS_ENV=dev
+```
+
+### A.3 발견된 이슈 (2026-04-29)
+
+| # | 이슈 | 영향 | 해결 위치 |
+|---|---|---|---|
+| 🚨 1 | LiteLLM 인스턴스 3개 중복 (default Degraded + internal Healthy + Helm Running) | 표준 endpoint 결정 필요 | §3 결정 #1 (신규), §1.2 |
+| 🚨 2 | `default/litellm` ImagePullBackOff | ArgoCD app `ax-infra-backend-litellm-dev-apne2` 미동작 | §1.2 사전 정리 |
+| ⚠️ 3 | OpenTelemetry Collector 목록에 없음 | OTLP 흐름 결정 필요 (Tempo 직접 vs Collector 신설) | §1.5 |
+| ⚠️ 4 | Langfuse 내부 ClickHouse svc 이름 미확정 | `CLICKHOUSE_HOST` 정확값 필요 | §1.3 사전 점검: `kubectl get svc -n langfuse-dev` |
+| ⚠️ 5 | JWKS URL 정확 경로 미확인 | auth-service `/.well-known/jwks.json` vs auth-oidc-proxy 경로 | §1.8 사전 점검 |
+
+### A.4 사전 점검 명령 (셋업 시작 전 1회 실행 권장)
+
+```bash
+# 1) namespace 별 svc / pod 상세 — endpoint 정확값 확보
+kubectl get svc,pod -n langfuse-dev
+kubectl get svc,pod -n litellm-internal
+kubectl get svc,pod -n litellm
+kubectl get svc -n default | grep -E "auth|litellm"
+
+# 2) ClickHouse svc 이름 확정 (예: clickhouse / clickhouse-headless / langfuse-clickhouse)
+kubectl get svc -n langfuse-dev | grep -i click
+
+# 3) Tempo OTLP receiver 노출 여부
+kubectl get svc -n <tempo-ns> tempo -o jsonpath='{.spec.ports}'
+
+# 4) Prometheus ServiceMonitor selector 확인 (ServiceMonitor 라벨 매칭)
+kubectl get prometheus -A -o jsonpath='{range .items[*]}{.metadata.name}:{.spec.serviceMonitorSelector}{"\n"}{end}'
+
+# 5) auth-service JWKS 도달성
+kubectl run -i --rm --restart=Never jwks-probe --image=curlimages/curl -- \
+  curl -sf http://auth-service.default.svc.cluster.local/.well-known/jwks.json | head -20
+```
+
+위 5개 명령으로 §A.1 endpoint 표의 빈칸이 모두 채워진다. 이후 §1.1~§1.9 셋업 진행.
+
+---
+
+## A2. 본 프로젝트 배포 작업 (Self-Service)
+
+> §1 인프라 셋업이 완료된 후 본 프로젝트를 사내 EKS에 배포하는 작업. 8건.
+
+| # | 작업 | 명령 / 산출물 | 의존 |
+|---|---|---|---|
+| B-1 | ECR 리포지토리 생성 | `aws ecr create-repository --repository-name {ax-eval-sandbox, ax-labs-backend, ax-labs-frontend}` | — |
+| B-2 | sandbox 이미지 빌드+푸시 | `docker build -f docker/sandbox/Dockerfile -t ax-eval-sandbox:1.0.0 docker/sandbox/` + ECR push | B-1 |
+| B-3 | backend 이미지 빌드+푸시 | `docker build -t ax-labs-backend:0.1.0 backend/` + ECR push | B-1 |
+| B-4 | frontend 이미지 빌드+푸시 | `docker build -t ax-labs-frontend:0.1.0 frontend/` + ECR push | B-1 |
+| B-5 | k8s manifests / Helm chart 작성 | `k8s/{namespace,backend/*,frontend/*,ingress.yaml,servicemonitor.yaml}` 또는 `helm/ax-labs/` | B-2~4 |
+| B-6 | ExternalSecrets 또는 Secret 등록 | LANGFUSE_*, LITELLM_VIRTUAL_KEY, CLICKHOUSE_PASSWORD 등 — ADR-011 결정 따름 | §1 완료, §3 결정 |
+| B-7 | ArgoCD app 등록 + 동기화 | `argocd app create ax-llm-eval-workflow-dev-apne2 --repo ... --path k8s` | B-5, B-6 |
+| B-8 | Ingress + DNS + TLS | `k8s/ingress.yaml` (ALB) + Route53 A record + ACM cert | B-5 |
+
+배포 후 검증: §5 Stage C 종합 검증 + 본 프로젝트 `/api/v1/health` 응답이 모든 dependency `status="ok"` 반환.
 
 ---
 
@@ -563,17 +679,43 @@ docker pull registry.internal.example.com/labs/ax-eval-sandbox:1.0.0
 
 > 실시간 추적용. 각 항목 셋업 시작/완료 시 상태 갱신.
 
+### 7.1 사전 점검 (Stage 0)
+
+| # | 항목 | 명령 | 상태 | 결과 / 비고 |
+|---|---|---|---|---|
+| 0.1 | namespace svc/pod 인벤토리 | `kubectl get svc,pod -n {langfuse-dev,litellm-internal,litellm,default}` | ⬜ | §A.4 1번 |
+| 0.2 | ClickHouse svc 이름 확정 | `kubectl get svc -n langfuse-dev \| grep -i click` | ⬜ | §A.4 2번 |
+| 0.3 | Tempo OTLP receiver 노출 | `kubectl get svc -n <tempo-ns> tempo -o jsonpath='{.spec.ports}'` | ⬜ | §A.4 3번 |
+| 0.4 | Prometheus ServiceMonitor selector | §A.4 4번 명령 | ⬜ | release/team 라벨 |
+| 0.5 | JWKS endpoint 도달성 | §A.4 5번 명령 | ⬜ | auth-service vs oidc-proxy |
+
+### 7.2 인프라 셋업 (Stage 2)
+
 | # | 항목 | 시작일 | 상태 | 완료일 | 비고 |
 |---|---|---|---|---|---|
-| 1.1 | Langfuse Key | _ | ⬜ 미착수 | _ | _ |
-| 1.2 | LiteLLM 모델 등록 + Virtual Key | _ | ⬜ 미착수 | _ | _ |
+| 1.0 | LiteLLM 표준 1개 결정 + 나머지 2개 정리 | _ | ⬜ 미착수 | _ | 🚨 §A.3 #1·#2 — `litellm-internal` 권장 |
+| 1.1 | Langfuse Key | _ | ⬜ 미착수 | _ | langfuse-dev/langfuse-web 포트포워딩 |
+| 1.2 | LiteLLM 모델 등록 + Virtual Key | _ | ⬜ 미착수 | _ | 1.0 완료 후 |
 | 1.3 | ClickHouse readonly | _ | ⬜ 미착수 | _ | Option 1 우선 시도 |
 | 1.4 | Prometheus scrape + 룰 | _ | ⬜ 미착수 | _ | Backend `/metrics` 가동 후 |
-| 1.5 | OTel Collector | _ | ⬜ 미착수 | _ | _ |
-| 1.6 | Loki 라벨 + 수집기 | _ | ⬜ 미착수 | _ | _ |
-| 1.7 | Redis 정책 | _ | ⬜ 미착수 | _ | 결정 1 따라 |
-| 1.8 | JWKS + RBAC 매핑 | _ | ⬜ 미착수 | _ | _ |
-| 1.9 | 네트워크 + 도메인 + 레지스트리 | _ | ⬜ 미착수 | _ | _ |
+| 1.5 | OTel Collector / Tempo OTLP | _ | ⬜ 미착수 | _ | §A.3 #3 — Tempo 직접 vs 신설 결정 |
+| 1.6 | Loki 라벨 + 수집기 | _ | ⬜ 미착수 | _ | promtail 자동 — 라벨만 추가 |
+| 1.7 | Redis 정책 | _ | ⬜ 미착수 | _ | 결정 1 (옵션 A: langfuse-redis db=1) |
+| 1.8 | JWKS + RBAC 매핑 | _ | ⬜ 미착수 | _ | §A.3 #5 — 정확 경로 확정 후 |
+| 1.9 | 네트워크 + 도메인 + 레지스트리 | _ | ⬜ 미착수 | _ | ECR repo 3개, ALB Ingress |
+
+### 7.3 본 프로젝트 배포 (Stage 4)
+
+| # | 항목 | 시작일 | 상태 | 완료일 | 비고 |
+|---|---|---|---|---|---|
+| B-1 | ECR repo 3개 생성 | _ | ⬜ 미착수 | _ | sandbox/backend/frontend |
+| B-2 | sandbox 이미지 빌드+푸시 | _ | ⬜ 미착수 | _ | Phase 5 의존 |
+| B-3 | backend 이미지 빌드+푸시 | _ | ⬜ 미착수 | _ | tag 0.1.0 |
+| B-4 | frontend 이미지 빌드+푸시 | _ | ⬜ 미착수 | _ | tag 0.1.0 |
+| B-5 | k8s manifests / Helm | _ | ⬜ 미착수 | _ | namespace/deploy/svc/ingress/SM |
+| B-6 | Secrets 등록 (ADR-011) | _ | ⬜ 미착수 | _ | ExternalSecrets 권장 |
+| B-7 | ArgoCD app 등록 + sync | _ | ⬜ 미착수 | _ | `ax-llm-eval-workflow-dev-apne2` |
+| B-8 | Ingress + DNS + TLS | _ | ⬜ 미착수 | _ | ALB internal + ACM/cert-manager |
 
 **상태 표기**: ⬜ 미착수 / 🟡 진행 중 / 🟢 셋업 완료 / ✅ 본 프로젝트 통합 검증 완료
 
@@ -597,3 +739,4 @@ docker pull registry.internal.example.com/labs/ax-eval-sandbox:1.0.0
 |---|---|---|
 | 2026-04-27 | 초안 작성 (외부 협의 가정) | _(TBD)_ |
 | 2026-04-27 | Self-Service 모드 반영 — 티켓 9건 → 셋업 명세 9건, 단일 트랙 흐름, 진행 보드 단순화 | _(TBD)_ |
+| 2026-04-29 | 사내 EKS 실제 매핑 추가 (§A 신설) — ArgoCD app/namespace/svc endpoint 표, `.env.production` 후보, 발견 이슈 5건, 사전 점검 명령 5종. 본 프로젝트 배포 작업 8건 (§A2) 추가. 진행 상태 보드를 사전 점검/인프라 셋업/배포 3단으로 확장 + LiteLLM 정리 작업 1.0 신규 | _(TBD)_ |
