@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   Activity,
   BarChart3,
+  ClipboardCheck,
   Database,
   FileText,
   FlaskConical,
@@ -57,6 +58,12 @@ const ITEMS: NavItem[] = [
     label: "Auto-Eval",
     icon: Activity,
     match: (p) => p.startsWith("/auto-eval"),
+  },
+  {
+    href: "/review",
+    label: "Review Queue",
+    icon: ClipboardCheck,
+    match: (p) => p.startsWith("/review"),
   },
   {
     href: "/settings",

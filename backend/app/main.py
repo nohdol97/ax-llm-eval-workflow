@@ -26,6 +26,7 @@ from app.api.v1 import models as models_router
 from app.api.v1 import notifications as notifications_router
 from app.api.v1 import projects as projects_router
 from app.api.v1 import prompts as prompts_router
+from app.api.v1 import reviews as reviews_router
 from app.api.v1 import search as search_router
 from app.api.v1 import tests as tests_router
 from app.api.v1 import traces as traces_router
@@ -163,6 +164,7 @@ def create_app() -> FastAPI:
     app.include_router(analysis_router.router, prefix="/api/v1")
     app.include_router(traces_router.router, prefix="/api/v1")
     app.include_router(auto_eval_router.router, prefix="/api/v1")
+    app.include_router(reviews_router.router, prefix="/api/v1")
 
     return app
 
@@ -197,6 +199,12 @@ async def _setup_auto_eval(app: FastAPI, settings: Settings) -> None:
         litellm_client=app.state.litellm,
     )
 
+    # Review Queue (Phase 8-C-2) — engine 보다 먼저 만들어 주입
+    from app.services.review_queue import ReviewQueueService  # noqa: WPS433
+
+    review_queue = ReviewQueueService(redis=app.state.redis)
+    app.state.review_queue = review_queue
+
     # Engine
     engine = AutoEvalEngine(
         repo=repo,
@@ -204,6 +212,7 @@ async def _setup_auto_eval(app: FastAPI, settings: Settings) -> None:
         pipeline=pipeline,
         langfuse=app.state.langfuse,
         redis=app.state.redis,
+        review_queue=review_queue,
     )
     app.state.auto_eval_engine = engine
 

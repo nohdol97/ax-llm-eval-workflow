@@ -765,7 +765,11 @@ function ComparePageInner() {
               </div>
             </CardHeader>
             <CardContent>
-              <ItemDiffTable runs={selectedRuns} itemResults={itemResults} />
+              <ItemDiffTable
+                runs={selectedRuns}
+                itemResults={itemResults}
+                projectId={projectId}
+              />
             </CardContent>
           </Card>
         </>

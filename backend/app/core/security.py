@@ -29,7 +29,7 @@ JWKS_CACHE_TTL_SEC = 3600
 
 # RBAC 클레임 후보 (둘 다 지원)
 _ROLE_CLAIMS = ("roles", "groups", "labs_role", "role")
-_VALID_ROLES: tuple[RBACRole, ...] = ("admin", "user", "viewer")
+_VALID_ROLES: tuple[RBACRole, ...] = ("admin", "reviewer", "user", "viewer")
 
 
 # ---------- JWKSValidator ----------
@@ -186,8 +186,8 @@ def _extract_role(claims: dict[str, Any]) -> RBACRole:
                 if isinstance(v, str):
                     found_roles.append(v.lower())
 
-    # 우선순위 admin > user > viewer
-    for candidate in ("admin", "user", "viewer"):
+    # 우선순위 admin > reviewer > user > viewer
+    for candidate in ("admin", "reviewer", "user", "viewer"):
         if candidate in found_roles:
             return cast(RBACRole, candidate)
     return "viewer"

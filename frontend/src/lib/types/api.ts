@@ -32,7 +32,7 @@ export interface ProblemDetails {
 // User / Auth
 // ─────────────────────────────────────────────────────────────────────
 
-export type RBACRole = "admin" | "user" | "viewer";
+export type RBACRole = "admin" | "reviewer" | "user" | "viewer";
 
 export interface User {
   id: string;
@@ -984,4 +984,115 @@ export interface CostUsage {
   daily_breakdown: CostUsageDailyEntry[];
   total_cost_usd: number;
   daily_limit_usd?: number;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Phase 8-C: Review Queue
+// 참조: docs/AGENT_EVAL.md §15.1, §18
+// ─────────────────────────────────────────────────────────────────────
+
+export type ReviewItemType =
+  | "auto_eval_flagged"
+  | "judge_low_confidence"
+  | "user_report"
+  | "manual_addition"
+  | "evaluator_submission";
+
+export type ReviewStatus = "open" | "in_review" | "resolved" | "dismissed";
+
+export type ReviewDecision =
+  | "approve"
+  | "override"
+  | "dismiss"
+  | "add_to_dataset";
+
+export type ReviewSeverity = "low" | "medium" | "high";
+
+export type ReviewSubjectType = "trace" | "experiment_item" | "submission";
+
+export interface ReviewItem {
+  id: string;
+  type: ReviewItemType;
+  severity: ReviewSeverity;
+  subject_type: ReviewSubjectType;
+  subject_id: string;
+  project_id: string;
+  reason: string;
+  reason_detail: Record<string, unknown>;
+  automatic_scores: Record<string, number | null>;
+  status: ReviewStatus;
+  assigned_to?: string | null;
+  assigned_at?: string | null;
+  decision?: ReviewDecision | null;
+  reviewer_score?: number | null;
+  reviewer_comment?: string | null;
+  expected_output?: unknown;
+  resolved_by?: string | null;
+  resolved_at?: string | null;
+  auto_eval_policy_id?: string | null;
+  auto_eval_run_id?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ReviewItemListResponse {
+  items: ReviewItem[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface ReviewItemCreate {
+  subject_type?: ReviewSubjectType;
+  subject_id: string;
+  project_id: string;
+  severity?: ReviewSeverity;
+  reason?: string;
+  reason_detail?: Record<string, unknown>;
+  automatic_scores?: Record<string, number | null>;
+  auto_eval_policy_id?: string;
+  auto_eval_run_id?: string;
+}
+
+export interface ReviewItemResolve {
+  decision: ReviewDecision;
+  reviewer_score?: number;
+  reviewer_comment?: string;
+  expected_output?: unknown;
+}
+
+export interface ReviewReport {
+  trace_id: string;
+  project_id: string;
+  reason: string;
+  severity?: ReviewSeverity;
+  subject_type?: ReviewSubjectType;
+}
+
+export interface ReviewQueueSummary {
+  open: number;
+  in_review: number;
+  resolved_today: number;
+  dismissed_today: number;
+  avg_resolution_time_min?: number | null;
+}
+
+export interface ReviewerStats {
+  user_id: string;
+  open_count: number;
+  in_review_count: number;
+  resolved_today: number;
+  avg_resolution_time_min?: number | null;
+  decisions_breakdown: Record<string, number>;
+}
+
+export interface EvaluatorDisagreementStat {
+  evaluator: string;
+  total_resolved: number;
+  override_count: number;
+  override_rate: number;
+}
+
+export interface EvaluatorDisagreementResponse {
+  items: EvaluatorDisagreementStat[];
 }

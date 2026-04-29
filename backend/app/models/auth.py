@@ -10,12 +10,15 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-RBACRole = Literal["admin", "user", "viewer"]
+RBACRole = Literal["admin", "reviewer", "user", "viewer"]
 """RBAC 역할.
 
 - ``admin``: 시스템 설정, score config 등록, 위험 작업 가능
+- ``reviewer`` (Phase 8-C 신설): Review Queue claim/decide + 통계 조회
 - ``user``: 실험 생성/실행, 프롬프트 편집 가능
 - ``viewer``: 읽기 전용
+
+권한 hierarchy: ``viewer < user < reviewer < admin``.
 """
 
 
@@ -23,6 +26,7 @@ RBACRole = Literal["admin", "user", "viewer"]
 ROLE_PRIORITY: dict[str, int] = {
     "viewer": 10,
     "user": 20,
+    "reviewer": 25,
     "admin": 30,
 }
 

@@ -957,3 +957,82 @@ def to_dataset_item_model(raw: dict[str, Any]) -> DatasetItem:
         expected_output=raw.get("expected_output"),
         metadata=raw.get("metadata") if isinstance(raw.get("metadata"), dict) else {},
     )
+
+
+# ---------- Phase 8-C-7 — Reviewer-curated 골든셋 자동 보강 ----------
+
+REVIEWER_CURATED_SUFFIX = "-reviewer-curated"
+"""``<agent>-reviewer-curated`` 접미사 — Phase 8-C 합의 #4 (불변 의도)."""
+
+
+def reviewer_curated_dataset_name(agent_name: str | None) -> str:
+    """agent 이름 → reviewer-curated 골든셋 이름.
+
+    agent_name 이 비어 있으면 ``unknown-agent`` 로 폴백.
+    공백/특수문자는 단순 hyphen 정규화 (Langfuse dataset name 규약).
+    """
+    raw = (agent_name or "").strip() or "unknown-agent"
+    safe = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "-" for ch in raw)
+    while "--" in safe:
+        safe = safe.replace("--", "-")
+    safe = safe.strip("-") or "unknown-agent"
+    return f"{safe}{REVIEWER_CURATED_SUFFIX}"
+
+
+def add_reviewer_curated_item(
+    langfuse: LangfuseClient | Any,
+    *,
+    agent_name: str | None,
+    trace_input: Any,
+    expected_output: Any,
+    metadata: dict[str, Any] | None = None,
+) -> str:
+    """reviewer 가 ``add_to_dataset`` 결정 시 골든셋에 trace 추가.
+
+    1. 대상 데이터셋 이름은 ``<agent>-reviewer-curated`` (suffix 고정)
+    2. 데이터셋 미존재 시 자동 생성 (idempotent — 이미 있으면 SDK가 무시 또는 에러)
+    3. trace.input + reviewer 가 입력한 expected_output 으로 새 item 추가
+
+    Args:
+        langfuse: ``LangfuseClient`` 또는 mock
+        agent_name: trace.name (없으면 ``unknown-agent`` 폴백)
+        trace_input: trace.input (그대로 저장)
+        expected_output: reviewer 입력
+        metadata: 추가 메타 (review_id, reviewer_user_id, source 등)
+
+    Returns:
+        대상 데이터셋 이름.
+
+    Raises:
+        :class:`LangfuseError`: SDK 예외는 caller 가 swallow 또는 로그 처리.
+    """
+    name = reviewer_curated_dataset_name(agent_name)
+
+    # 1) 데이터셋 idempotent 생성 — 이미 있으면 SDK 가 에러 반환할 수 있어 swallow
+    try:
+        langfuse.create_dataset(
+            name=name,
+            description=f"Reviewer 가 add_to_dataset 결정한 trace 누적 (agent={agent_name})",
+            metadata={"source": "reviewer-curated"},
+        )
+    except LangfuseError as exc:
+        # 대부분 "이미 존재" — 진행
+        logger.debug(
+            "reviewer_curated_dataset_create_skipped",
+            extra={"dataset": name, "reason": str(exc.detail or exc)[:200]},
+        )
+
+    # 2) Item 추가
+    item_metadata = dict(metadata or {})
+    item_metadata.setdefault("source", "reviewer_curated")
+    langfuse.create_dataset_item(
+        dataset_name=name,
+        input=trace_input,
+        expected_output=expected_output,
+        metadata=item_metadata,
+    )
+    logger.info(
+        "reviewer_curated_item_added",
+        extra={"dataset": name, "agent_name": agent_name},
+    )
+    return name

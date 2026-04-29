@@ -8,10 +8,13 @@ import { ScoreBadge } from "@/components/ui/ScoreBadge";
 import { Select } from "@/components/ui/Select";
 import { cn } from "@/lib/utils";
 import type { ItemDiffRow, ItemResult, SelectedRun, SortMode } from "./types";
+import { ReportButton } from "./ReportButton";
 
 interface ItemDiffTableProps {
   runs: SelectedRun[];
   itemResults: ItemResult[];
+  /** 신고 버튼이 사용할 프로젝트 ID (Phase 8-C-10) */
+  projectId?: string;
 }
 
 function computeDiff(scores: Array<number | null>): number {
@@ -53,7 +56,7 @@ const SORT_OPTIONS: Array<{ value: SortMode; label: string }> = [
   { value: "index_asc", label: "아이템 순서" },
 ];
 
-export function ItemDiffTable({ runs, itemResults }: ItemDiffTableProps) {
+export function ItemDiffTable({ runs, itemResults, projectId }: ItemDiffTableProps) {
   const [sortMode, setSortMode] = useState<SortMode>("diff_desc");
   const [failuresOnly, setFailuresOnly] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -179,6 +182,7 @@ export function ItemDiffTable({ runs, itemResults }: ItemDiffTableProps) {
                     row={row}
                     runs={runs}
                     isExpanded={isExpanded}
+                    projectId={projectId}
                     onToggle={() =>
                       setExpandedId(isExpanded ? null : row.itemId)
                     }
@@ -197,11 +201,13 @@ function ItemDiffRowView({
   row,
   runs,
   isExpanded,
+  projectId,
   onToggle,
 }: {
   row: ItemDiffRow;
   runs: SelectedRun[];
   isExpanded: boolean;
+  projectId?: string;
   onToggle: () => void;
 }) {
   const diffPct = Math.min(100, Math.abs(row.diff) * 100);
@@ -322,6 +328,19 @@ function ItemDiffRowView({
                   );
                 })}
               </div>
+              {projectId ? (
+                <div className="flex items-center justify-end gap-2 border-t border-zinc-800/60 pt-3">
+                  <span className="text-[10px] text-zinc-500">
+                    이 결과가 잘못되었나요?
+                  </span>
+                  <ReportButton
+                    itemId={row.itemId}
+                    projectId={projectId}
+                    subjectType="experiment_item"
+                    size="md"
+                  />
+                </div>
+              ) : null}
             </motion.div>
           </td>
         </tr>

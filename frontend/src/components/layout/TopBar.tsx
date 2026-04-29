@@ -2,7 +2,15 @@
 
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
-import { Bell, Check, ChevronDown, GitCompare, Search, Trash2 } from "lucide-react";
+import {
+  Bell,
+  Check,
+  ChevronDown,
+  ClipboardCheck,
+  GitCompare,
+  Search,
+  Trash2,
+} from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { useBasket } from "@/lib/basket";
@@ -12,6 +20,7 @@ import {
   useMarkNotificationRead,
   useNotificationList,
 } from "@/lib/hooks/useNotifications";
+import { useReviewSummary } from "@/lib/hooks/useReviews";
 import type { Notification } from "@/lib/types/api";
 import { SearchOverlay } from "@/components/ui/SearchOverlay";
 import { cn } from "@/lib/utils";
@@ -91,6 +100,10 @@ export function TopBar() {
 
   const markRead = useMarkNotificationRead();
   const markAll = useMarkAllNotificationsRead();
+
+  // Review Queue 미해결 건수 (Phase 8-C-11)
+  const { data: reviewSummary } = useReviewSummary(projectId);
+  const reviewQueueCount = (reviewSummary?.open ?? 0) + (reviewSummary?.in_review ?? 0);
 
   // 외부 클릭 닫기
   useEffect(() => {
@@ -311,6 +324,20 @@ export function TopBar() {
             )}
           </AnimatePresence>
         </div>
+
+        {/* Review Queue 배지 (Phase 8-C-11) */}
+        <Link
+          href="/review"
+          aria-label={`Review Queue (미해결 ${reviewQueueCount}건)`}
+          className="relative grid h-8 w-8 place-items-center rounded-md text-zinc-300 hover:bg-zinc-800"
+        >
+          <ClipboardCheck className="h-4 w-4" />
+          {reviewQueueCount > 0 && (
+            <span className="absolute right-0.5 top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-amber-500 px-1 text-[10px] font-semibold text-white">
+              {reviewQueueCount > 99 ? "99+" : reviewQueueCount}
+            </span>
+          )}
+        </Link>
 
         {/* Notification Bell */}
         <div ref={bellRef} className="relative">

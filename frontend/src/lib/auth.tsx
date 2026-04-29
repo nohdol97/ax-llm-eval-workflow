@@ -38,7 +38,7 @@ interface AuthContextValue {
   login: (token: string) => void;
   /** 토큰/유저 클리어. redirect=true면 로그인 페이지로 이동 */
   logout: (options?: { redirect?: boolean }) => void;
-  /** 권한 위계 비교. admin > user > viewer */
+  /** 권한 위계 비교. admin > reviewer > user > viewer */
   hasRole: (role: RBACRole) => boolean;
 }
 
@@ -47,7 +47,8 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 const ROLE_RANK: Record<RBACRole, number> = {
   viewer: 1,
   user: 2,
-  admin: 3,
+  reviewer: 3,
+  admin: 4,
 };
 
 // ─────────────────────────────────────────────────────────────────────
